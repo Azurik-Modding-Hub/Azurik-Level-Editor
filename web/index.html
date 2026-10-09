@@ -4,8 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#111820">
-  <title>Azurik · Level Studio 1.0.0</title>
+  <title>Azurik · Level Studio 2.0.0</title>
   <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="/assets/studio.ico">
   <script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
 </head>
 <body>
@@ -47,10 +48,41 @@
   </svg>
 
   <header class="topbar">
-    <div class="brand"><div class="brand-mark"><span></span><span></span><span></span></div><div><strong>AZURIK</strong><span>LEVEL STUDIO</span></div><span class="version">1.0.0 · LOCAL</span></div>
+    <div class="brand"><div class="brand-mark"><span></span><span></span><span></span></div><div><strong>AZURIK</strong><span>LEVEL STUDIO</span></div><span class="version">2.0.0 · LOCAL</span></div>
     <div class="project-title"><span class="project-dot"></span><span>Rise of Perathia</span><span class="project-separator">/</span><strong id="headerLevel">Chargement du projet…</strong><span id="dirtyDot" class="dirty-dot" hidden></span></div>
     <div class="header-actions"><label class="language-control"><span class="sr-only">Langue de l’interface</span><select id="languageSelect" class="compact-select" aria-label="Langue de l’interface"><option value="fr" lang="fr" translate="no">Français</option><option value="en" lang="en" translate="no">English</option></select></label><button id="importIsoBtn" class="button secondary import-button" title="Importer un fichier ISO Xbox"><svg><use href="#i-folder"/></svg><span>Importer un ISO</span></button><input id="isoFileInput" type="file" accept=".iso,.xiso" hidden aria-label="Importer un fichier ISO Xbox"><button id="helpBtn" class="icon-button" title="Commandes et raccourcis" aria-label="Commandes et raccourcis"><svg><use href="#i-help"/></svg></button><button id="saveBtn" class="button secondary" disabled><svg><use href="#i-save"/></svg><span>Enregistrer</span></button><button id="exportBtn" class="button primary" disabled><svg><use href="#i-export"/></svg><span>Exporter le mod</span></button></div>
   </header>
+
+  <nav class="editor-menubar" aria-label="Menus de l’éditeur">
+    <details class="editor-menu"><summary>Fichier</summary><div class="menu-popup">
+      <button data-action="importIso"><span>Importer un ISO</span></button>
+      <button data-action="save"><span>Enregistrer</span><kbd>Ctrl S</kbd></button>
+      <button data-action="export"><span>Exporter le mod</span><kbd>Ctrl Maj E</kbd></button>
+    </div></details>
+    <details class="editor-menu"><summary>Édition</summary><div class="menu-popup">
+      <button data-action="undo"><span>Annuler</span><kbd>Ctrl Z</kbd></button>
+      <button data-action="redo"><span>Rétablir</span><kbd>Ctrl Maj Z</kbd></button>
+      <button data-action="duplicate"><span>Dupliquer la sélection</span><kbd>Ctrl D</kbd></button>
+      <button data-action="delete"><span>Supprimer l’ajout sélectionné</span><kbd>Suppr</kbd></button>
+      <button data-action="resetLevel" class="menu-danger"><span>Restaurer le niveau d’origine</span></button>
+    </div></details>
+    <details class="editor-menu"><summary>Importation</summary><div class="menu-popup">
+      <button data-action="importModel"><span>Importer un modèle</span></button>
+      <button data-action="replaceModel"><span>Remplacer le modèle sélectionné</span></button>
+      <button data-action="importTexture"><span>Importer une texture PNG</span></button>
+      <button data-action="replaceTexture"><span>Remplacer une texture du niveau</span></button>
+    </div></details>
+    <details class="editor-menu"><summary>Vue</summary><div class="menu-popup">
+      <button data-action="freeCamera"><span>Caméra libre · déplacement et regard</span><kbd>Tab</kbd></button>
+      <button data-action="orbitCamera"><span>Caméra orbitale</span></button>
+      <button data-action="frame"><span>Cadrer la sélection</span><kbd>F</kbd></button>
+      <button data-action="frameAll"><span>Cadrer le niveau</span><kbd>Home</kbd></button>
+      <button data-action="viewSettings"><span>Réglages de visualisation</span></button>
+    </div></details>
+    <button data-action="help" class="menu-help">Aide et raccourcis</button>
+    <span id="navigationMode" class="navigation-mode">Caméra libre</span>
+    <span class="menu-version">2.0.0</span>
+  </nav>
 
   <div class="workspace">
     <aside class="panel hierarchy-panel">
@@ -71,9 +103,9 @@
 
     <main class="viewport-area">
       <div class="viewport-toolbar">
-        <div class="tool-group"><button id="moveTool" class="tool-button active" title="Déplacer · W" aria-label="Déplacer"><svg><use href="#i-move"/></svg></button><button id="rotateTool" class="tool-button" title="Rotation locale · E" aria-label="Rotation locale"><svg><use href="#i-rotate"/></svg></button><button id="scaleTool" class="tool-button" title="Échelle locale · R" aria-label="Échelle locale"><svg><use href="#i-scale"/></svg></button><span class="toolbar-separator"></span><button id="undoBtn" class="tool-button" title="Annuler · Ctrl Z" aria-label="Annuler" disabled><svg><use href="#i-undo"/></svg></button><button id="redoBtn" class="tool-button" title="Rétablir · Ctrl Y" aria-label="Rétablir" disabled><svg><use href="#i-redo"/></svg></button></div>
+        <div class="tool-group"><button id="moveTool" class="tool-button active" title="Déplacer · W (caméra orbitale)" aria-label="Déplacer"><svg><use href="#i-move"/></svg></button><button id="rotateTool" class="tool-button" title="Rotation locale · E" aria-label="Rotation locale"><svg><use href="#i-rotate"/></svg></button><button id="scaleTool" class="tool-button" title="Échelle locale · R" aria-label="Échelle locale"><svg><use href="#i-scale"/></svg></button><span class="toolbar-separator"></span><button id="undoBtn" class="tool-button" title="Annuler · Ctrl Z" aria-label="Annuler" disabled><svg><use href="#i-undo"/></svg></button><button id="redoBtn" class="tool-button" title="Rétablir · Ctrl Maj Z" aria-label="Rétablir" disabled><svg><use href="#i-redo"/></svg></button></div>
         <div class="toolbar-mode"><span class="mode-dot"></span><span id="toolSpace">Monde</span></div>
-        <div class="tool-group"><button id="frameBtn" class="tool-button" title="Cadrer la sélection · F / tout le niveau · Home" aria-label="Cadrer"><svg><use href="#i-frame"/></svg></button><button id="flyBtn" class="tool-button" title="Caméra libre : clic droit + ZQSD / WASD" aria-label="Caméra libre"><svg><use href="#i-fly"/></svg></button><span class="toolbar-separator"></span><button id="gridBtn" class="tool-button active" title="Grille" aria-label="Grille" aria-pressed="true"><svg><use href="#i-grid"/></svg></button><button id="textureBtn" class="tool-button active" title="Textures" aria-label="Textures" aria-pressed="true"><svg><use href="#i-image"/></svg></button><button id="wireBtn" class="tool-button" title="Fil de fer" aria-label="Fil de fer" aria-pressed="false"><svg><use href="#i-wire"/></svg></button><button id="collisionBtn" class="tool-button" title="Collisions" aria-label="Collisions" aria-pressed="false"><svg><use href="#i-shield"/></svg></button><button id="helpersBtn" class="tool-button active" title="Repères d’entités" aria-label="Repères d’entités" aria-pressed="true"><svg><use href="#i-pin"/></svg></button></div>
+        <div class="tool-group"><button id="frameBtn" class="tool-button" title="Cadrer la sélection · F / tout le niveau · Home" aria-label="Cadrer"><svg><use href="#i-frame"/></svg></button><button id="flyBtn" class="tool-button active" title="Caméra libre / orbitale · Tab" aria-label="Caméra libre" aria-pressed="true"><svg><use href="#i-fly"/></svg></button><span class="toolbar-separator"></span><button id="gridBtn" class="tool-button active" title="Grille" aria-label="Grille" aria-pressed="true"><svg><use href="#i-grid"/></svg></button><button id="textureBtn" class="tool-button active" title="Textures" aria-label="Textures" aria-pressed="true"><svg><use href="#i-image"/></svg></button><button id="wireBtn" class="tool-button" title="Fil de fer" aria-label="Fil de fer" aria-pressed="false"><svg><use href="#i-wire"/></svg></button><button id="collisionBtn" class="tool-button" title="Collisions" aria-label="Collisions" aria-pressed="false"><svg><use href="#i-shield"/></svg></button><button id="helpersBtn" class="tool-button active" title="Repères d’entités" aria-label="Repères d’entités" aria-pressed="true"><svg><use href="#i-pin"/></svg></button></div>
       </div>
       <div class="view-controls"><div class="view-presets"><select id="cameraPreset" class="compact-select" aria-label="Point de vue"><option value="perspective">Perspective</option><option value="start">Depuis le départ</option><option value="top">Dessus · Z</option><option value="front">Face · Y</option><option value="side">Côté · X</option></select><select id="zoomSelect" class="compact-select" aria-label="Zoom du viewport"><option value="0.5">50 %</option><option value="0.75">75 %</option><option value="1" selected>100 %</option><option value="1.5">150 %</option><option value="2">200 %</option></select></div><div class="tool-group"><button id="modelsBtn" class="view-toggle active" aria-pressed="true" title="Modèles d’entités en pose de liaison">Modèles</button><button id="animationBtn" class="tool-button active" title="Animer les textures · cadence d’aperçu" aria-label="Lire les animations de textures" aria-pressed="true"><svg><use href="#i-pause"/></svg></button><label class="fps-control"><input id="animationFps" type="number" value="12" min="1" max="60" aria-label="Cadence d’aperçu des textures"> ips</label><button id="captureBtn" class="tool-button" title="Capturer la vue en PNG" aria-label="Capturer en PNG"><svg><use href="#i-camera"/></svg></button><button id="viewSettingsBtn" class="tool-button" title="Réglages de visualisation" aria-label="Réglages de visualisation"><svg><use href="#i-settings"/></svg></button></div></div>
       <div class="environment-controls"><select id="detailSelect" class="compact-select" aria-label="Détail du décor"><option value="close">Décor · détail maximal</option><option value="source">Décor · état de chargement</option></select><select id="skySelect" class="compact-select" aria-label="Ciel du niveau"><option value="off">Lecture du ciel…</option></select><label class="fly-speed-control"><span>Vitesse</span><select id="flySpeedSelect" class="compact-select" aria-label="Vitesse de déplacement"><option value="0.2">Lent · précision</option><option value="1" selected>Normal</option><option value="5">Rapide · exploration</option></select></label><span id="sceneCoverage" class="scene-coverage"></span></div>

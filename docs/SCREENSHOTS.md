@@ -1,4 +1,16 @@
-# Screenshots — official release 1.0.0
+# Screenshots — Azurik Level Studio
+
+## Version 2.0.0 — menus and model import
+
+Captured in the 2.0.0 editor during interface validation. The Training room does not contain a sky resource. These show the application interface, not gameplay validation.
+
+![Version 2.0.0 menus](screenshots/v2-editor-menus.jpg)
+
+![Version 2.0.0 model import](screenshots/v2-model-import.jpg)
+
+![Native Windows keyboard help](screenshots/v2-keyboard-help.jpg)
+
+## Version 1.0.0 — owner-supplied level views
 
 These four screenshots were supplied by the project owner on 9 October 2026. They show editor views of decoded game data, not a rebuilt disc tested in Xemu. A gameplay comparison can be added when supplied.
 

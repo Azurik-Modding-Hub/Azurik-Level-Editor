@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.0 — 2026-10-09
+
+- Free camera by default, reliable viewport focus and fixed-position looking.
+- File/edit/import/view/help menus and visible shortcut hints.
+- Ctrl Z / Ctrl Shift Z history and reversible whole-level restoration.
+- Static model import/replacement/duplication and PNG texture import/replacement.
+- Guarded compatible native replacements and separate preview-asset export.
+- Static transfer caching and reduced redundant viewport work.
+- Version-aware desktop startup, updated EXE and owner-supplied Perathia Modding Hub icon.
+- Cache guidance in the presentation, releases and English upstream pull request.
+
 ## 1.0.0 — 2026-10-09
 
 First official release of Azurik Level Studio.

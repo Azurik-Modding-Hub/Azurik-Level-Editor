@@ -29,6 +29,10 @@ class DesktopError(RuntimeError):
     """An actionable startup failure that can be shown without a traceback."""
 
 
+class VersionMismatchError(DesktopError):
+    """The responding Studio belongs to a different installed version."""
+
+
 def validate_port(value):
     try:
         port = int(value)
@@ -58,6 +62,10 @@ def probe_health(url, *, timeout=1.0):
             raise ValueError("Unrecognized service")
     except (UnicodeError, ValueError) as exc:
         raise DesktopError("Le port est utilisé par un autre service. Choisis un autre port avec --port.") from exc
+    if data.get("version") != VERSION:
+        raise VersionMismatchError(
+            f"L’éditeur déjà ouvert utilise la version {data.get('version', 'inconnue')}, "
+            f"alors que cette fenêtre utilise la version {VERSION}.")
     return True
 
 
@@ -82,8 +90,14 @@ class StudioSession:
         self.process = None
 
     def start(self):
-        if probe_health(self.url):
-            return self.url
+        try:
+            if probe_health(self.url):
+                return self.url
+        except VersionMismatchError:
+            # Leave an older editor and its unsaved project alone. A new window
+            # must always use its bundled server rather than silently showing V1.
+            self.port = self._available_port()
+            self.url = f"http://127.0.0.1:{self.port}"
         if port_is_occupied(self.port):
             raise DesktopError(f"Le port {self.port} est déjà occupé et l’éditeur ne répond pas. Choisis un autre port avec --port.")
         log_dir = self.data_root / "logs"
@@ -112,6 +126,13 @@ class StudioSession:
             if probe_health(self.url, timeout=min(1.0, remaining)):
                 return self.url
             time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+
+    def _available_port(self):
+        # Ask the OS for a free loopback port; Popen readiness still detects a
+        # competing process which happens to claim it before our server binds.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            return listener.getsockname()[1]
 
     def close(self):
         process, self.process = self.process, None
@@ -149,6 +170,9 @@ def run_desktop(port=8766, source=None, debug=False):
     storage.mkdir(parents=True, exist_ok=True)
     with StudioSession(port, source) as session:
         options = {"private_mode": False, "storage_path": str(storage), "debug": debug}
+        icon = ROOT / "assets" / "studio.ico"
+        if icon.is_file():
+            options["icon"] = str(icon)
         if os.name == "nt":
             options["gui"] = "edgechromium"
         try:

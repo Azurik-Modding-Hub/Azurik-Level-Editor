@@ -10,11 +10,15 @@ export function navigationSpeed(value) {
   return Number.isFinite(result) && result > 0 ? Math.min(100, Math.max(0.01, result)) : 1;
 }
 
-function keyName(event) {
+function keyName(event, locale = 'fr') {
   // event.key follows the selected physical keyboard layout: AZERTY's Z must
   // remain Z even though browsers report its physical code as KeyW.
   const key = String(event.key || '').toLowerCase();
   if (key === ' ' || key === 'spacebar') return 'space';
+  // Windows WebView can expose the US key label even with an AZERTY layout.
+  // Keep the translated keys primary and accept these physical equivalents.
+  if (locale === 'fr' && key === 'w' && event.code === 'KeyW') return 'z';
+  if (key === 'a' && event.code === 'KeyA') return 'q';
   return key;
 }
 
@@ -27,6 +31,7 @@ export function createFreeNavigation({
   THREE, camera, orbit, viewport, element = viewport,
   getLocale = () => 'fr', getSpeed = () => 1, getRadius = () => 100,
   getBlocked = () => false, getSensitivity = () => 0.003,
+  onEnabledChange = () => {},
   windowTarget = globalThis.window, documentTarget = viewport?.ownerDocument || globalThis.document,
 } = {}) {
   if (!THREE || !camera || !orbit || !viewport || !element || !windowTarget || !documentTarget) {
@@ -57,13 +62,14 @@ export function createFreeNavigation({
   };
   const hasFocus = () => {
     const active = documentTarget.activeElement;
-    return !textControl(active) && (active === viewport || active === element || viewport.contains?.(active));
+    return !textControl(active) && (active === viewport || active === element || viewport.contains?.(active)
+      || active === documentTarget.body || active === documentTarget.documentElement);
   };
   const syncLocale = () => {
     const next = getLocale() === 'en' ? 'en' : 'fr';
     if (next !== locale) { locale = next; reset(); }
   };
-  const focus = () => viewport.focus?.({ preventScroll: true });
+  const focus = () => element.focus?.({ preventScroll: true });
   const consume = event => { event.preventDefault?.(); event.stopPropagation?.(); };
 
   function syncFromCamera() {
@@ -115,12 +121,13 @@ export function createFreeNavigation({
     orbit.enabled = !enabled && !getBlocked();
     syncFromCamera();
     if (enabled && focusViewport) focus();
+    onEnabledChange(enabled);
   }
 
   function consumesKey(event) {
     syncLocale();
     if (!enabled || disposed || getBlocked() || !hasFocus() || textControl(event.target)) return false;
-    const key = keyName(event);
+    const key = keyName(event, locale);
     // Ctrl/Cmd shortcuts (save, undo, redo, browser commands) keep their meaning.
     if ((event.ctrlKey || event.metaKey) && !['control', 'shift', 'alt'].includes(key)) return false;
     return [...navigationKeys(locale), ...lookKeys, 'space', 'control', 'shift', 'alt'].includes(key);
@@ -128,13 +135,13 @@ export function createFreeNavigation({
 
   function handleKeyDown(event) {
     if (!consumesKey(event)) return false;
-    held.add(keyName(event));
+    held.add(keyName(event, locale));
     consume(event);
     return true;
   }
 
   function handleKeyUp(event) {
-    const key = keyName(event);
+    const key = keyName(event, locale);
     const wasHeld = held.delete(key);
     if (wasHeld && enabled && hasFocus() && !textControl(event.target)) consume(event);
     return wasHeld;
@@ -142,16 +149,22 @@ export function createFreeNavigation({
 
   function beginLook(event) {
     syncLocale();
-    if (!enabled || disposed || getBlocked() || event.button !== 2) return false;
+    if (disposed || getBlocked() || event.button !== 2) return false;
+    // A right drag always means looking from the current position, including
+    // immediately after choosing an orbital camera preset.
+    if (!enabled) enable(true);
     focus();
     syncFromCamera();
     looking = true;
     dragPointer = event.pointerId ?? 0;
     lastX = Number(event.clientX) || 0;
     lastY = Number(event.clientY) || 0;
-    element.setPointerCapture?.(dragPointer);
+    try { element.setPointerCapture?.(dragPointer); } catch { /* WebView may have released this pointer. */ }
     element.style.cursor = 'grabbing';
     consume(event);
+    // OrbitControls and TransformControls listen on this same canvas. Their
+    // right-button handlers must not pan the camera during a free look drag.
+    event.stopImmediatePropagation?.();
     return true;
   }
 
@@ -170,6 +183,7 @@ export function createFreeNavigation({
     lastY = y;
     applyLook();
     consume(event);
+    event.stopImmediatePropagation?.();
     return true;
   }
 

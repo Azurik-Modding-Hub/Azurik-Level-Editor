@@ -198,10 +198,35 @@ def fake_opener(monkeypatch, payload=None, error=None):
 
 
 def test_health_probe_checks_identity_and_loopback(monkeypatch):
-    requests = fake_opener(monkeypatch, json.dumps({"app": desktop.APP_ID}).encode())
+    requests = fake_opener(monkeypatch, json.dumps({"app": desktop.APP_ID, "version": desktop.VERSION}).encode())
     assert desktop.probe_health("http://127.0.0.1:8766", timeout=0.4)
     assert requests[0][0].full_url == "http://127.0.0.1:8766/api/health"
     assert requests[0][1] == 0.4
+
+
+@pytest.mark.parametrize("version", ["1.0.0-old", None])
+def test_health_probe_rejects_incompatible_studio_version(monkeypatch, version):
+    fake_opener(monkeypatch, json.dumps({"app": desktop.APP_ID, "version": version}).encode())
+    with pytest.raises(desktop.VersionMismatchError, match="version"):
+        desktop.probe_health("http://127.0.0.1:8766")
+
+
+def test_old_studio_stays_running_while_new_version_uses_another_port(monkeypatch, tmp_path):
+    process, calls = fake_start(monkeypatch, [True])
+    probes = []
+    def probe(url, **kwargs):
+        probes.append(url)
+        if len(probes) == 1:
+            raise desktop.VersionMismatchError("old version")
+        return True
+    monkeypatch.setattr(desktop, "probe_health", probe)
+    monkeypatch.setattr(desktop.StudioSession, "_available_port", lambda _: 8976)
+    with desktop.StudioSession(root=tmp_path) as session:
+        assert session.port == 8976
+        assert session.url == "http://127.0.0.1:8976"
+    assert probes == ["http://127.0.0.1:8766", "http://127.0.0.1:8976"]
+    assert calls[0][0][-2:] == ["--port", "8976"]
+    assert process.terminated  # only the new child is owned by this session
 
 
 @pytest.mark.parametrize("payload", [b"not json", b"{}", b"[]", b'{"app":"different-app"}', b"x" * (desktop.MAX_HEALTH_BYTES + 1)],
@@ -265,6 +290,20 @@ def test_native_profile_uses_data_folder_not_bundled_assets(monkeypatch, tmp_pat
     desktop.run_desktop()
     assert started[0]["storage_path"] == str(tmp_path / "persisted" / ".webview")
     assert not (tmp_path / "extraction").exists()
+
+
+def test_native_window_uses_packaged_application_icon(monkeypatch, tmp_path):
+    started = []
+    icon = tmp_path / "assets" / "studio.ico"
+    icon.parent.mkdir()
+    icon.write_bytes(b"test icon")
+    monkeypatch.setattr(desktop, "ROOT", tmp_path)
+    monkeypatch.setattr(desktop, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(desktop, "load_webview", lambda: SimpleNamespace(
+        create_window=lambda *args, **kwargs: None, start=lambda **kwargs: started.append(kwargs)))
+    fake_start(monkeypatch, [True])
+    desktop.run_desktop()
+    assert started[0]["icon"] == str(icon)
 
 
 def test_server_dispatch_restores_argv_and_does_not_load_webview(monkeypatch):

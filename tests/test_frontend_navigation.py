@@ -184,3 +184,23 @@ assert.equal(navigation.handleKeyDown(event('ArrowLeft',{ctrlKey:true})),false);
 navigation.enable(false);assert.equal(navigation.handleKeyDown(event('ArrowLeft')),false);navigation.update(.05);
 assert.ok(camera.position.distanceTo(position)<1e-12);assert.ok(direction().distanceTo(orientation)<1e-12);
 """)
+
+
+def test_webview_body_focus_and_physical_azerty_equivalent_move_without_entering_text_fields():
+    run_node(SETUP + """
+const origin=camera.position.clone();documentTarget.body=new Surface('BODY');documentTarget.activeElement=documentTarget.body;
+assert.equal(navigation.handleKeyDown(event('w',{code:'KeyW',target:documentTarget.body})),true);navigation.update(.05);navigation.handleKeyUp(event('w',{code:'KeyW'}));approximately(camera.position.y-origin.y,.6);
+documentTarget.activeElement=new Surface('INPUT');assert.equal(navigation.handleKeyDown(event('w',{code:'KeyW'})),false);navigation.update(.05);approximately(camera.position.y-origin.y,.6);
+documentTarget.activeElement=viewport;const previous=camera.position.clone();move('a');assert.ok(camera.position.distanceTo(previous)<1e-12);
+move('a');assert.equal(navigation.handleKeyDown(event('a',{code:'KeyA'})),true);navigation.update(.05);navigation.handleKeyUp(event('a',{code:'KeyA'}));approximately(camera.position.x-previous.x,-.6);
+""")
+
+
+def test_right_drag_from_orbit_mode_enters_free_look_and_blocks_other_canvas_handlers():
+    run_node(SETUP + """
+navigation.enable(false);assert.equal(orbit.enabled,true);const position=camera.position.clone();let stopped=0;
+const down=event('',{button:2,pointerId:4,clientX:0,clientY:0,stopImmediatePropagation(){stopped++;}});
+assert.equal(navigation.beginLook(down),true);assert.equal(navigation.enabled,true);assert.equal(orbit.enabled,false);assert.equal(documentTarget.activeElement,canvas);assert.equal(stopped,1);
+navigation.dragLook(event('',{pointerId:4,clientX:100,clientY:100,stopImmediatePropagation(){stopped++;}}));assert.equal(stopped,2);assert.ok(camera.position.distanceTo(position)<1e-12);
+navigation.endLook({pointerId:4});move('z');assert.ok(camera.position.distanceTo(position)>.5);
+""")

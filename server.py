@@ -2,19 +2,24 @@
 from __future__ import annotations
 
 import argparse
+from array import array
 import base64
 import binascii
+from collections import OrderedDict
 from datetime import datetime, timezone
 import gzip
+import hashlib
 import io
 import json
 import mimetypes
+import math
 import os
 from pathlib import Path
 import re
 import threading
 import time
 import traceback
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 import webbrowser
@@ -27,7 +32,44 @@ from studio_version import VERSION
 ROOT = ASSET_ROOT
 MAX_REQUEST = 64 * 1024
 MAX_CAPTURE_REQUEST = 16 * 1024 * 1024
+MAX_ASSET_REQUEST = 32 * 1024 * 1024
+STATIC_CACHE_BYTES = 32 * 1024 * 1024
+STATIC_CACHE_ENTRY_BYTES = 8 * 1024 * 1024
+ASSET_UPLOAD_ROUTES = {"/api/import-model", "/api/replace-model",
+                       "/api/import-texture", "/api/replace-texture"}
+GEOMETRY_BUFFER_KEYS = {"positions", "indices", "normals", "uvs", "uv2", "colors", "sourceNormals"}
+MAX_GEOMETRY_BUFFER_VALUES = 16_000_000
 CAPTURE_NAME = re.compile(r"capture-\d{8}-\d{6}-\d{6}-[0-9a-f]{8}\.png")
+
+
+def pack_scene_transport(value, key=None):
+    """Encode only geometry buffers at the float32 precision used by WebGL.
+
+    This is opt-in transport, not a project/source change. Small transform
+    vectors and all edit bindings retain their original JSON representation.
+    """
+    if isinstance(value, dict):
+        return {name: pack_scene_transport(item, name) for name, item in value.items()}
+    if isinstance(value, list):
+        if key in GEOMETRY_BUFFER_KEYS and 256 <= len(value) <= MAX_GEOMETRY_BUFFER_VALUES:
+            try:
+                packed = array("I" if key == "indices" else "f", value)
+            except (TypeError, ValueError, OverflowError):
+                # Non-buffer lists or values outside float32 are still handled
+                # by strict ordinary JSON; nothing is truncated or clamped.
+                return value
+            if packed.itemsize != 4:
+                return value
+            if key != "indices" and not all(math.isfinite(number) for number in packed):
+                raise ValueError("Les coordonnées de géométrie doivent être finies.")
+            if sys.byteorder != "little":
+                packed.byteswap()
+            return {"$studioBuffer": "u32" if key == "indices" else "f32", "length": len(packed),
+                    "data": base64.b64encode(packed.tobytes()).decode("ascii")}
+        # Plain scalar lists need no recursive copy and stay exact.
+        if value and isinstance(value[0], (dict, list)):
+            return [pack_scene_transport(item) for item in value]
+    return value
 
 
 def capture_directory(backend):
@@ -80,6 +122,33 @@ class StudioServer(ThreadingHTTPServer):
         self.imports = ISOImports(imports_dir or DATA_ROOT / "imports")
         self.original_backend = backend
         self.active_source = "original" if backend is not None else None
+        self.static_cache = OrderedDict()
+        self.static_cache_size = 0
+        self.static_cache_lock = threading.RLock()
+
+    def static_response(self, path):
+        """Avoid rereading and recompressing unchanged bundled modules/images."""
+        stat = path.stat()
+        stamp = (stat.st_size, stat.st_mtime_ns)
+        with self.static_cache_lock:
+            cached = self.static_cache.pop(path, None)
+            if cached is not None:
+                if cached["stamp"] == stamp:
+                    self.static_cache[path] = cached
+                    return cached
+                self.static_cache_size -= cached["bytes"]
+            content = path.read_bytes()
+            encoded = gzip.compress(content, compresslevel=3, mtime=0) if path.suffix in (".js", ".css", ".html") else None
+            result = {"stamp": stamp, "content": content, "gzip": encoded,
+                      "etag": '"' + hashlib.sha256(content).hexdigest() + '"',
+                      "bytes": len(content) + (len(encoded) if encoded is not None else 0)}
+            if result["bytes"] <= STATIC_CACHE_ENTRY_BYTES:
+                while self.static_cache and self.static_cache_size + result["bytes"] > STATIC_CACHE_BYTES:
+                    _, removed = self.static_cache.popitem(last=False)
+                    self.static_cache_size -= removed["bytes"]
+                self.static_cache[path] = result
+                self.static_cache_size += result["bytes"]
+            return result
 
     def require_backend(self):
         if self.backend is None:
@@ -137,10 +206,15 @@ class StudioHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(f"{self.log_date_time_string()} {fmt % args}", flush=True)
 
-    def _send(self, content: bytes, mime: str, status: int = 200, compress=False, download_name=None):
+    def _send(self, content: bytes, mime: str, status: int = 200, compress=False, download_name=None,
+              content_encoding=None, etag=None):
         compressed = compress and "gzip" in self.headers.get("Accept-Encoding", "")
         if compressed:
             content = gzip.compress(content, compresslevel=3)
+            content_encoding = "gzip"
+        if etag is not None and self.headers.get("If-None-Match") == etag:
+            content = b""
+            status = 304
         self.send_response(status)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(content)))
@@ -148,10 +222,12 @@ class StudioHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         self.send_header("Cache-Control", "no-cache")
+        if etag is not None:
+            self.send_header("ETag", etag)
         if download_name is not None:
             self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
-        if compressed:
-            self.send_header("Content-Encoding", "gzip")
+        if content_encoding is not None:
+            self.send_header("Content-Encoding", content_encoding)
             self.send_header("Vary", "Accept-Encoding")
         self.end_headers()
         try:
@@ -160,6 +236,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             pass
 
     def _json(self, value, status=200):
+        if status == 200 and self.headers.get("X-Studio-Geometry") == "packed-v1":
+            value = pack_scene_transport(value)
         self._send(json.dumps(value, ensure_ascii=False, allow_nan=False,
                               separators=(",", ":")).encode("utf-8"),
                    "application/json; charset=utf-8", status, compress=True)
@@ -171,6 +249,9 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _scene(self, level):
         scene = self.server.require_backend().get_scene(level)
+        return self._enrich_scene(scene)
+
+    def _enrich_scene(self, scene):
         scene.setdefault("warnings", scene.get("capabilities", {}).get("warnings", []))
         return self.server.characters().enrich(scene)
 
@@ -259,6 +340,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             if route.path.startswith("/textures/"):
                 static_root = Path(self.server.require_backend().texture_dir)
                 relative = unquote(route.path[len("/textures/"):])
+            elif route.path.startswith("/assets/"):
+                static_root = ROOT / "assets"
+                relative = unquote(route.path[len("/assets/"):])
             else:
                 static_root = ROOT / "web"
                 relative = unquote(route.path.lstrip("/")) or "index.html"
@@ -269,7 +353,13 @@ class StudioHandler(BaseHTTPRequestHandler):
             mime = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
             if candidate.suffix in (".js", ".mjs"):
                 mime = "text/javascript; charset=utf-8"
-            self._send(candidate.read_bytes(), mime, compress=candidate.suffix in (".js", ".css", ".html"))
+            cached = self.server.static_response(candidate)
+            encoding = "gzip" if cached["gzip"] is not None and "gzip" in self.headers.get("Accept-Encoding", "") else None
+            # Representation-specific validators avoid sharing the compressed
+            # validator with clients which did not request gzip.
+            etag = cached["etag"][:-1] + ('-gzip"' if encoding else '"')
+            self._send(cached["gzip"] if encoding else cached["content"], mime,
+                       content_encoding=encoding, etag=etag)
         except Exception as exc:
             self._fail(exc)
 
@@ -283,21 +373,27 @@ class StudioHandler(BaseHTTPRequestHandler):
         if path == "/api/import-iso-upload":
             self._upload_iso(length)
             return
-        maximum = MAX_CAPTURE_REQUEST if path == "/api/capture" else MAX_REQUEST
+        maximum = (MAX_ASSET_REQUEST if path in ASSET_UPLOAD_ROUTES else
+                   MAX_CAPTURE_REQUEST if path == "/api/capture" else MAX_REQUEST)
         if not 0 < length <= maximum:
             # Drain modest rejected bodies so Windows delivers the 413 response
             # instead of resetting the socket while the client finishes sending.
-            if 0 < length <= MAX_CAPTURE_REQUEST:
-                remaining = length
-                while remaining:
-                    chunk = self.rfile.read(min(remaining, MAX_REQUEST))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
+            self._drain_rejected_upload(length)
+            self.close_connection = True
             self._json({"error": "Requête vide ou trop volumineuse"}, 413)
             return
         # Drain bounded bodies before rejecting, avoiding TCP resets on Windows.
-        raw_payload = self.rfile.read(length)
+        self.connection.settimeout(30)
+        try:
+            raw_payload = self.rfile.read(length)
+        except OSError:
+            self.close_connection = True
+            self._json({"error": "La requête est incomplète ou a expiré."}, 400)
+            return
+        if len(raw_payload) != length:
+            self.close_connection = True
+            self._json({"error": "La requête est incomplète."}, 400)
+            return
         origin = self.headers.get("Origin", "")
         allowed_origins = {f"http://127.0.0.1:{self.server.server_port}",
                            f"http://localhost:{self.server.server_port}"}
@@ -307,7 +403,12 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json({"error": "Requête non autorisée"}, 403)
             return
         try:
-            payload = json.loads(raw_payload)
+            def reject_constant(value):
+                raise ValueError("Les nombres JSON doivent être finis.")
+            try:
+                payload = json.loads(raw_payload, parse_constant=reject_constant)
+            except RecursionError as exc:
+                raise ValueError("La structure JSON est trop imbriquée.") from exc
             if not isinstance(payload, dict):
                 raise ValueError("Objet JSON attendu")
             if path == "/api/import-iso":
@@ -320,6 +421,28 @@ class StudioHandler(BaseHTTPRequestHandler):
                 backend = self.server.require_backend()
                 if path == "/api/capture":
                     result = save_capture(backend, payload.get("image"))
+                elif path == "/api/reset-level":
+                    result = backend.reset_level(payload["level"])
+                    result["scene"] = self._enrich_scene(result["scene"])
+                elif path == "/api/duplicate":
+                    result = backend.duplicate(payload["level"], payload["id"], payload.get("offset"))
+                    result["scene"] = self._enrich_scene(result["scene"])
+                elif path == "/api/delete-asset":
+                    result = backend.delete_asset(payload["level"], payload["id"])
+                    result["scene"] = self._enrich_scene(result["scene"])
+                elif path == "/api/import-model":
+                    result = backend.import_model(payload["level"], payload.get("name"), payload.get("model"),
+                                                  payload.get("position"))
+                    result["scene"] = self._enrich_scene(result["scene"])
+                elif path == "/api/replace-model":
+                    result = backend.replace_model(payload["level"], payload["id"], payload.get("name"), payload.get("model"))
+                    result["scene"] = self._enrich_scene(result["scene"])
+                elif path == "/api/import-texture":
+                    result = backend.import_texture(payload["level"], payload.get("name"), payload.get("image"))
+                    result["scene"] = self._enrich_scene(result["scene"])
+                elif path == "/api/replace-texture":
+                    result = backend.replace_texture(payload["level"], payload["id"], payload.get("name"), payload.get("image"))
+                    result["scene"] = self._enrich_scene(result["scene"])
                 elif path == "/api/move":
                     result = backend.move(payload["level"], payload["id"], payload["position"])
                 elif path == "/api/lock":

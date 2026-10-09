@@ -5,6 +5,8 @@ import { effectiveParentRows } from '/source-transform.mjs';
 import { createFreeNavigation } from '/navigation.mjs';
 import { initLanguage, getLanguage, onLanguageChange, translate, translateLevelName, formatNumber, formatSize } from '/i18n.mjs';
 import { createSourceImport } from '/source-import.mjs';
+import { parseModelFiles, readPngFile } from '/asset-import.mjs';
+import { decodeSceneTransport } from '/scene-transport.mjs';
 
 const $ = id => document.getElementById(id);
 const number = value => formatNumber(Math.round(Number(value) || 0));
@@ -25,20 +27,21 @@ const eulerOrder = item => item?.previewEditable ? 'ZYX' : ['ZYX', 'XZY', 'YXZ',
 const state = {
   levels: [], level: null, data: null, catalog: null, items: new Map(), selected: null, sky: 'day', detail: 'close',
   filter: 'all', query: '', textures: true, grid: true, wire: false, collisions: false,
-  helpers: true, models: true, fly: false, assetTab: 'textures', assetQuery: '', assetScope: 'level', assetPage: 0, archive: '', libraryData: null, libraryLoading: false, libraryError: '', libraryRequest: 0, nodeFilter: '', tool: 'translate', animation: true, animationFps: 12, exposure: 1, background: 'studio', pending: 0, unsaved: false,
+  helpers: true, models: true, fly: true, assetTab: 'textures', assetQuery: '', assetScope: 'level', assetPage: 0, archive: '', libraryData: null, libraryLoading: false, libraryError: '', libraryRequest: 0, nodeFilter: '', tool: 'translate', animation: true, animationFps: 12, exposure: 1, background: 'studio', pending: 0, unsaved: false,
   canUndo: false, canRedo: false, busy: false, loading: false, request: 0,
 };
 initLanguage();
 
 const viewport = $('viewport');
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 // The game's fixed combiner operates on stored RGB values. Avoid applying
 // Three's sRGB decode/encode around those original byte-space operations.
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
 renderer.setClearColor(0x000000, 0);
 renderer.domElement.setAttribute('aria-label', 'Rendu 3D des données Azurik');
+renderer.domElement.tabIndex = 0;
 viewport.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -73,6 +76,8 @@ let selectionBox = null;
 let worldBounds = new THREE.Box3();
 let worldRadius = 100;
 let textureResources = new Map();
+const textureCache = new Map();
+let renderDirty = true;
 const materialResources = new Map();
 const animationResources = new Map();
 let nodeMap = new Map();
@@ -106,7 +111,8 @@ let cameraHudTime = 0;
 const freeNavigation = createFreeNavigation({ THREE, camera, orbit, viewport, element: renderer.domElement,
   getLocale: getLanguage, getSpeed: () => Number($('flySpeedSelect').value), getRadius: () => worldRadius,
   getBlocked: () => state.loading || state.busy || state.importing || transform.dragging || $('infoDialog').open,
-  windowTarget: window, documentTarget: document });
+  windowTarget: window, documentTarget: document,
+  onEnabledChange: value => { state.fly = value; $('flyBtn').classList.toggle('active', value); $('flyBtn').setAttribute('aria-pressed', String(value)); updateNavigationHint(); } });
 
 function setStatus(message, error = false) {
   $('statusText').textContent = translate(message);
@@ -122,14 +128,15 @@ function toast(message, error = false) {
 }
 
 async function api(path, body, options = {}) {
-  const response = await fetch(path, body === undefined ? options : {
+  const headers = { ...options.headers, 'X-Studio-Geometry': 'packed-v1' };
+  const response = await fetch(path, body === undefined ? { ...options, headers } : {
     ...options,
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   let data;
   try { data = await response.json(); } catch { throw new Error(`Le serveur a renvoyé une réponse illisible (${response.status}).`); }
   if (!response.ok || data.error) throw new Error(data.error || data.message || `Erreur ${response.status}`);
-  return data;
+  return decodeSceneTransport(data);
 }
 
 function overlay(title, text, error = false) {
@@ -158,6 +165,14 @@ function updateActions() {
   $('lockBtn').disabled = !available || !state.selected || (state.items.get(state.selected)?.locked && !state.items.get(state.selected)?.lockedExplicitly);
   $('lockAllBtn').disabled = !available;
   $('unlockAllBtn').disabled = !available;
+  const selectedMesh = state.items.get(state.selected)?.kind === 'mesh';
+  const deletedAddition = /^import-/u.test(state.selected || '') && selectedMesh;
+  const actions = { save: available, export: available && (state.pending > 0 || state.data?.previewCount > 0), undo: available && state.canUndo,
+    redo: available && state.canRedo, duplicate: available && selectedMesh && !state.items.get(state.selected)?.locked,
+    delete: available && deletedAddition && !state.items.get(state.selected)?.locked, resetLevel: available,
+    importModel: available, replaceModel: available && selectedMesh && !state.items.get(state.selected)?.locked,
+    importTexture: available, replaceTexture: available && !!state.data?.textures?.length, importIso: !state.loading && !state.busy && !state.importing };
+  document.querySelectorAll('[data-action]').forEach(button => { if (button.dataset.action in actions) button.disabled = !actions[button.dataset.action]; });
   $('importIsoBtn').disabled = state.loading || state.busy || state.importing;
   const selected = state.items.get(state.selected);
   $('lockBtn').querySelector('span').textContent = translate(selected?.locked ? 'Déverrouiller' : 'Verrouiller');
@@ -177,7 +192,7 @@ function disposeObject(object, disposeMaterials = true) {
   object.removeFromParent();
 }
 
-function cleanScene() {
+function cleanScene(reuseTextures = false) {
   transform.detach();
   if (selectionBox) { disposeObject(selectionBox); selectionBox = null; }
   [...world.children].forEach(object => disposeObject(object, false));
@@ -185,7 +200,7 @@ function cleanScene() {
   [...entityGroup.children].forEach(object => { object.children.filter(child => !child.userData.model).forEach(child => child.material?.dispose()); disposeObject(object, false); });
   if (collisionMesh) { disposeObject(collisionMesh); collisionMesh = null; }
   if (grid) { disposeObject(grid); grid = null; }
-  new Set(textureResources.values()).forEach(texture => texture.dispose());
+  if (!reuseTextures) { new Set(textureCache.values()).forEach(texture => texture.dispose()); textureCache.clear(); }
   textureResources.clear();
   materialResources.forEach(material => material.dispose());
   materialResources.clear();
@@ -493,7 +508,7 @@ function buildScene(data, preserveCamera = false, restoreId = null) {
   const savedCamera = camera.position.clone();
   const savedTarget = orbit.target.clone();
   const savedVisibility = preserveCamera ? new Map([...state.items.values()].map(item => [item.id, item.visible])) : new Map();
-  cleanScene();
+  cleanScene(true);
   state.data = data;
   nodeMap = new Map((data.nodes || []).map(node => [node.index, node]));
   nodeAncestors = new Map();
@@ -505,7 +520,8 @@ function buildScene(data, preserveCamera = false, restoreId = null) {
   const texturesByUrl = new Map();
   const loadTexture = url => {
     if (texturesByUrl.has(url)) return texturesByUrl.get(url);
-    const resource = loader.load(url, undefined, undefined, () => { setStatus('Une texture n’a pas pu être chargée ; géométrie disponible.', true); });
+    if (textureCache.has(url)) { const resource = textureCache.get(url); texturesByUrl.set(url, resource); return resource; }
+    const resource = loader.load(url, () => { renderDirty = true; }, undefined, () => { setStatus('Une texture n’a pas pu être chargée ; géométrie disponible.', true); });
     resource.colorSpace = THREE.NoColorSpace;
     resource.wrapS = resource.wrapT = THREE.RepeatWrapping;
     resource.magFilter = THREE.LinearFilter;
@@ -513,6 +529,7 @@ function buildScene(data, preserveCamera = false, restoreId = null) {
     resource.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     resource.flipY = false;
     texturesByUrl.set(url, resource);
+    textureCache.set(url, resource);
     return resource;
   };
   for (const texture of textures) {
@@ -522,6 +539,9 @@ function buildScene(data, preserveCamera = false, restoreId = null) {
       const frames = texture.frameUrls.map((url, i) => { const resource = loadTexture(url); textureResources.set(`${texture.id}:frame:${i}`, resource); return resource; });
       animationResources.set(String(texture.id), { entry: texture, frames, frame: 0, manual: false });
     }
+  }
+  for (const [url, resource] of textureCache) {
+    if (!texturesByUrl.has(url)) { resource.dispose(); textureCache.delete(url); }
   }
   for (const entry of data.meshes || []) {
     if (!entry.positions?.length) continue;
@@ -684,6 +704,8 @@ function buildScene(data, preserveCamera = false, restoreId = null) {
   updateAssetCounts();
   $('textureFormat').textContent = textures.length ? `ASSETS DU JEU · ${[...new Set(textures.map(item => item.format).filter(Boolean))].slice(0, 3).join(' / ')}` : 'DUMP ORIGINAL';
   updateActions();
+  renderDirty = true;
+  freeNavigation.syncFromCamera();
 }
 
 async function initialize() {
@@ -706,7 +728,9 @@ async function initialize() {
     $('levelCount').textContent = `${state.levels.length} NIVEAUX`;
     $('sourcePath').textContent = catalog.sourceDir ? catalog.sourceDir.split(/[\\/]/).filter(Boolean).at(-1) : translate('Changements enregistrés dans le projet local');
     $('sourcePath').title = catalog.sourceDir || '';
-    const initial = state.levels.find(level => level.id === state.level) || state.levels.find(level => level.id === 'town') || state.levels[0];
+    let lastLevel;
+    try { lastLevel = localStorage.getItem('azurik.lastLevel'); } catch { /* storage may be unavailable */ }
+    const initial = state.levels.find(level => level.id === state.level || level.id === lastLevel) || state.levels.find(level => level.id === 'training_room') || state.levels[0];
     if (!initial) {
       state.loading = false;
       $('headerLevel').textContent = translate('Importez votre jeu'); $('viewportLevel').textContent = 'AZURIK';
@@ -745,6 +769,8 @@ async function loadLevel(id, options = {}) {
     buildScene(data, options.preserveCamera, options.restoreId);
     state.loading = false;
     $('sceneOverlay').hidden = true;
+    try { localStorage.setItem('azurik.lastLevel', id); } catch { /* optional preference */ }
+    if (state.fly) renderer.domElement.focus({ preventScroll: true });
     setStatus(`${name} ouvert · ${number((data.meshes || []).length)} géométries · ${number((data.objects || []).length)} repères d’entités`);
     updateActions();
   } catch (error) {
@@ -853,8 +879,12 @@ function retailTransparentSort(a, b) {
 renderer.setTransparentSort(retailTransparentSort);
 
 function updateRenderDistances(root, renderCamera) {
-  root.updateMatrixWorld(true);
-  root.traverse(object => { if (object.isMesh) object.userData.retailSortDistance = retailRenderDistance(object, renderCamera); });
+  root.updateMatrixWorld();
+  root.traverse(object => {
+    if (object.isMesh && (Array.isArray(object.material) ? object.material : [object.material]).some(material => material?.transparent)) {
+      object.userData.retailSortDistance = retailRenderDistance(object, renderCamera);
+    }
+  });
 }
 
 function renderViewport() {
@@ -1072,7 +1102,7 @@ function renderInspector() {
   $('selectedId').textContent = item.id;
   refreshPositionFields();
   const node = nodeForItem(item);
-  $('selectionWarning').textContent = item.locked ? 'Objet verrouillé · déverrouillez-le pour le modifier.' : item.previewOnly ? 'Placement d’aperçu sauvegardé dans le projet. Ce bloc ne peut pas encore être déplacé dans les fichiers du jeu.' : !isEditable(item)
+  $('selectionWarning').textContent = item.locked ? 'Objet verrouillé · déverrouillez-le pour le modifier.' : item.assetWarning || (item.previewOnly ? 'Bloc d’aperçu sauvegardé dans le projet et l’export d’assets. Ce bloc n’est pas intégré dans les fichiers du jeu.' : !isEditable(item)
     ? 'Ce bloc est consultable. Son format ne permet pas encore un déplacement fiable ; la modification est désactivée.'
     : item.kind === 'mesh'
     ? isWorldSpace(item)
@@ -1080,7 +1110,7 @@ function renderInspector() {
       : 'Cette primitive est affichée dans ses coordonnées source. Modifier ses sommets affecte le modèle utilisé par le jeu ; ses placements et les collisions demandent une vérification dans le jeu.'
     : isWorldSpace(item)
       ? item.model ? 'Modèle original en pose de liaison, sans animation de squelette. Le placement est celui du graphe du jeu ; les comportements ne sont pas exécutés.' : 'Ce repère représente une position du graphe du jeu. Son modèle et ses comportements ne sont pas exécutés dans cette vue.'
-      : 'Ce repère affiche les coordonnées enregistrées dans le fichier. Leur rattachement à un parent n’est pas encore résolu : la position mondiale reste à confirmer. Le modèle animé n’est pas décodé.';
+      : 'Ce repère affiche les coordonnées enregistrées dans le fichier. Leur rattachement à un parent n’est pas encore résolu : la position mondiale reste à confirmer. Le modèle animé n’est pas décodé.');
   const details = [
     ['Type', item.kind === 'mesh' ? item.instance ? 'Instance de scène' : isWorldSpace(item) ? 'Géométrie statique' : 'Primitive de modèle' : item.gameKind || 'Entité'],
     ['Adresse du bloc', sourceOffset(item.sourceOffset ?? item.coordOffset)],
@@ -1093,6 +1123,7 @@ function renderInspector() {
     const count = [...state.items.values()].filter(other => other.editBinding?.editOffset === item.editBinding.editOffset).length;
     details.push(['Placement sérialisé', sourceOffset(item.editBinding.editOffset)], ['Parties liées', number(count)]);
   }
+  if (item.modelReplaced) details.push(['Modèle remplacé', item.assetGameExportable ? 'Export dans le jeu pris en charge' : 'Aperçu uniquement']);
   if (node) details.push(['Nœud de transformation', node.name || String(node.index)], ['Groupe du niveau', nodePath(item)]);
   if (item.model) {
     details.push(['Modèle original', item.model.name || item.modelKey || item.archetype || item.name], ['Pose affichée', 'Liaison · non animée']);
@@ -1173,6 +1204,9 @@ function modelAssets() {
   for (const entry of characterCatalog) result.set(entry.name, { ...entry, kind: 'character', description: `${entry.boneCount} os · pose de liaison` });
   for (const [key, entry] of Object.entries(state.data?.entityModels || {})) result.set(entry.name || key, { ...entry, name: entry.name || key, label: key === 'azurik-player' ? 'Azurik · pose de liaison' : key, kind: 'character', description: `${number(entry.triangleCount)} triangles · ${entry.meshCount || entry.meshes?.length || 0} parties` });
   for (const entry of state.data?.assets || []) result.set(entry.id || entry.name, { ...entry, kind: 'primitive', description: `${number(entry.vertices ?? entry.vertexCount ?? entry.positions?.length / 3)} sommets · ${number(entry.triangles ?? 0)} triangles · ressource du niveau` });
+  for (const entry of state.data?.meshes || []) if (entry.previewEditable && /^import-/u.test(entry.id)) {
+    result.set(entry.id, { ...entry, kind: 'primitive', description: `${number(entry.indices?.length / 3)} triangles · ${translate('Ajout du projet · aperçu')}` });
+  }
   return [...result.values()];
 }
 
@@ -1328,6 +1362,15 @@ function showTexture(entry) {
   const body = openDialog(entry.name || `Texture ${entry.id}`, 'TEXTURE DU DUMP');
   const image = document.createElement('img'); image.className = 'texture-preview'; image.src = entry.url; image.alt = entry.name || 'Texture du jeu';
   const details = document.createElement('div'); details.className = 'modal-details'; const dimensions = document.createElement('span'); dimensions.textContent = `${entry.width} × ${entry.height} pixels`; const format = document.createElement('span'); format.textContent = entry.format || 'Texture Xbox'; details.append(dimensions, format); body.append(image, details);
+  if (entry.replaced || /^import-tex-/u.test(String(entry.id))) {
+    const status = document.createElement('div'); status.className = `asset-import-result${entry.gameExportable ? '' : ' preview-only'}`;
+    status.textContent = translate(entry.gameExportable ? 'Modification compatible avec l’export dans le jeu.' : 'Texture du projet · aperçu et export d’assets uniquement.'); body.append(status);
+  }
+  if (state.assetScope === 'level') {
+    const replace = document.createElement('button'); replace.className = 'button secondary'; replace.textContent = 'Remplacer cette texture';
+    replace.addEventListener('click', () => showAssetImport('texture', entry.id));
+    const actions = document.createElement('div'); actions.className = 'asset-import-actions'; actions.append(replace); body.append(actions);
+  }
   if (entry.kind === 'animation' && entry.frameUrls?.length) {
     const controls = document.createElement('div'); controls.className = 'animation-controls';
     const button = document.createElement('button'); button.className = 'tool-button active'; button.innerHTML = icon('pause'); button.title = 'Pause / lecture de cet aperçu'; button.setAttribute('aria-label', button.title);
@@ -1352,6 +1395,7 @@ function cleanDialogPreview() {
 }
 
 async function showModel(entry) {
+  if (state.items.has(entry.id)) { $('infoDialog').close(); selectItem(entry.id); frameObject(state.items.get(entry.id).object); return; }
   const fromLibrary = !!(entry.archive && entry.id);
   const body = openDialog(entry.label || entry.name, entry.kind === 'static' ? 'MODÈLE SOURCE · ASSEMBLAGE STATIQUE' : 'MODÈLE SOURCE · POSE DE LIAISON');
   const loading = document.createElement('p'); loading.textContent = 'Lecture du modèle original…'; body.append(loading);
@@ -1397,12 +1441,16 @@ function setAnimationFrame(animation, frame) {
 }
 
 function updateAnimations(now) {
-  if (state.animation) animationResources.forEach(animation => { if (!animation.manual) { const frame = Math.floor(now / 1000 * state.animationFps) % animation.frames.length; if (frame !== animation.frame) setAnimationFrame(animation, frame); } });
+  let changed = false;
+  if (state.animation) animationResources.forEach(animation => { if (!animation.manual) { const frame = Math.floor(now / 1000 * state.animationFps) % animation.frames.length; if (frame !== animation.frame) { setAnimationFrame(animation, frame); changed = true; } } });
   if (dialogAnimation) {
     const view = dialogAnimation; if (!view.paused && state.animation) view.frame = Math.floor(now / 1000 * state.animationFps) % view.entry.frameUrls.length;
-    if (view.image.dataset.frame !== String(view.frame)) { view.image.src = view.entry.frameUrls[view.frame]; view.image.dataset.frame = String(view.frame); }
-    view.range.value = String(view.frame); view.output.textContent = `${view.frame + 1} / ${view.entry.frameCount}`;
+    if (view.image.dataset.frame !== String(view.frame)) {
+      view.image.src = view.entry.frameUrls[view.frame]; view.image.dataset.frame = String(view.frame);
+      view.range.value = String(view.frame); view.output.textContent = `${view.frame + 1} / ${view.entry.frameCount}`;
+    }
   }
+  return changed;
 }
 
 function overviewBounds(objects) {
@@ -1627,12 +1675,139 @@ async function changeLock(locked, all = false) {
   finally { state.busy = false; configureGizmo(); updateActions(); }
 }
 
+async function assetMutation(action, body, restoreId = state.selected) {
+  if (!state.level || state.loading || state.busy || state.importing) return null;
+  state.busy = true; freeNavigation.reset(); transform.detach(); updateActions();
+  try {
+    const result = await api(`/api/${action}`, { level: state.level, ...body });
+    buildScene(result.scene || await api(`/api/scene?level=${encodeURIComponent(state.level)}`), true, result.id || restoreId);
+    state.unsaved = true; renderDirty = true;
+    return result;
+  } catch (error) { toast(error.message, true); throw error; }
+  finally { state.busy = false; updateActions(); }
+}
+
+function showAssetResult(result, title) {
+  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.0.0');
+  const status = document.createElement('div'); status.className = `asset-import-result${result.gameExportable ? '' : ' preview-only'}`;
+  status.textContent = translate(result.gameExportable ? 'Modification compatible avec l’export dans le jeu.' : 'Ajout conservé dans le projet et l’export d’assets. Aperçu uniquement dans le niveau ; non intégré au jeu.');
+  body.append(status);
+  if (result.warning) { const warning = document.createElement('p'); warning.textContent = result.warning; body.append(warning); }
+  const note = document.createElement('p'); note.textContent = 'Ctrl Z annule cette opération ; Ctrl Maj Z la rétablit.'; body.append(note);
+  const close = document.createElement('button'); close.className = 'button primary'; close.textContent = 'Revenir au niveau'; close.addEventListener('click', () => $('infoDialog').close()); body.append(close);
+}
+
+async function duplicateSelection() {
+  const item = state.items.get(state.selected);
+  if (!item || item.kind !== 'mesh' || item.locked) return;
+  try {
+    const result = await assetMutation('duplicate', { id: item.id, offset: [Math.max(worldRadius * 0.005, 1), 0, 0] });
+    if (result) showAssetResult(result, 'Modèle dupliqué');
+  } catch { /* assetMutation already reports the failure */ }
+}
+
+async function deleteAddition() {
+  const item = state.items.get(state.selected);
+  if (!item || item.locked || item.kind !== 'mesh' || !/^import-/u.test(item.id)) return;
+  try { if (await assetMutation('delete-asset', { id: item.id }, null)) toast('Ajout supprimé · Ctrl Z pour le restaurer.'); }
+  catch { /* failure is already visible */ }
+}
+
+function showResetLevel() {
+  if (!state.level || state.loading || state.busy) return;
+  const body = openDialog('Restaurer le niveau d’origine', 'AZURIK LEVEL STUDIO 2.0.0');
+  const paragraph = document.createElement('p'); paragraph.textContent = 'Rétablir les positions, transformations, modèles et textures du niveau actif depuis le dump source, puis supprimer les ajouts du niveau. Les autres niveaux sont conservés. Ctrl Z permet de récupérer vos modifications.';
+  const actions = document.createElement('div'); actions.className = 'asset-import-actions';
+  const cancel = document.createElement('button'); cancel.className = 'button secondary'; cancel.textContent = 'Annuler'; cancel.addEventListener('click', () => $('infoDialog').close());
+  const restore = document.createElement('button'); restore.className = 'button primary'; restore.textContent = 'Restaurer ce niveau';
+  restore.addEventListener('click', async () => {
+    restore.disabled = true;
+    try {
+      const result = await assetMutation('reset-level', {}, null);
+      if (result) { $('infoDialog').close(); state.items.forEach(item => { item.visible = item.lodControlled ? item.editorVisible !== false : true; applyItemVisibility(item); }); renderHierarchy(); updateVisibleStats(); toast('Niveau d’origine restauré · Ctrl Z pour annuler.'); }
+    } catch { restore.disabled = false; }
+  });
+  actions.append(cancel, restore); body.append(paragraph, actions);
+}
+
+function showAssetImport(kind, targetId = null) {
+  if (!state.level || state.loading || state.busy) return;
+  const replacing = targetId !== null;
+  const title = kind === 'model' ? replacing ? 'Remplacer le modèle sélectionné' : 'Importer un modèle' : replacing ? 'Remplacer une texture du niveau' : 'Importer une texture PNG';
+  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.0.0');
+  const form = document.createElement('form'); form.className = 'asset-import-form';
+  const note = document.createElement('p'); note.className = 'dialog-note';
+  note.textContent = kind === 'model' ? 'OBJ, glTF 2.0, GLB ou JSON · 12 Mo maximum. Pour un glTF, sélectionnez aussi son fichier .bin. La géométrie est assemblée ; choisissez la texture ci-dessous. Les ajouts et duplications restent des aperçus. Un remplacement de même topologie peut être exporté dans le jeu et affecter ses autres instances.' : 'PNG · 8 Mo maximum. Un remplacement compatible conserve les dimensions et le format Xbox du jeu. Une texture partagée est remplacée dans toutes ses utilisations. Les autres imports restent dans le projet et l’export d’assets.';
+  body.append(note);
+  let fieldIndex = 0;
+  const field = (text, control) => {
+    control.id = `asset-${kind}-${++fieldIndex}`; control.name = control.id; control.setAttribute('aria-label', translate(text));
+    const label = document.createElement('label'); label.htmlFor = control.id;
+    const caption = document.createElement('span'); caption.textContent = translate(text); label.append(caption, control); form.append(label); return control;
+  };
+  const input = document.createElement('input'); input.type = 'file'; input.required = true; input.multiple = kind === 'model'; input.accept = kind === 'model' ? '.obj,.gltf,.glb,.json,.bin' : '.png';
+  field('Fichier à importer', input);
+  const name = document.createElement('input'); name.type = 'text'; name.maxLength = 120; name.required = true; field('Nom de l’asset', name);
+  let axis, texture, coordinateSpace;
+  if (kind === 'model') {
+    axis = document.createElement('select');
+    for (const [value, label] of [['z', 'Z vers le haut · Azurik'], ['y', 'Y vers le haut · glTF standard']]) { const option = document.createElement('option'); option.value = value; option.textContent = label; axis.append(option); }
+    field('Orientation du modèle', axis);
+    if (replacing) {
+      coordinateSpace = document.createElement('select');
+      for (const [value, label] of [['asset', 'Coordonnées locales du modèle'], ['world', 'Coordonnées du niveau (monde)']]) {
+        const option = document.createElement('option'); option.value = value; option.textContent = label; coordinateSpace.append(option);
+      }
+      field('Coordonnées du modèle', coordinateSpace);
+    }
+    texture = document.createElement('select'); const none = document.createElement('option'); none.value = ''; none.textContent = 'Conserver la texture · ou sans texture'; texture.append(none);
+    for (const entry of state.data.textures || []) { const option = document.createElement('option'); option.value = String(entry.id); option.textContent = `${entry.name || entry.id} · ${entry.width} × ${entry.height}`; texture.append(option); }
+    field('Texture du modèle', texture);
+  } else if (replacing) {
+    texture = document.createElement('select');
+    for (const entry of state.data.textures || []) { const option = document.createElement('option'); option.value = String(entry.id); option.textContent = `${entry.name || entry.id} · ${entry.width} × ${entry.height} · ${entry.format || 'Xbox'}`; texture.append(option); }
+    texture.value = String(targetId); field('Texture à remplacer', texture);
+  }
+  const summary = document.createElement('output'); summary.className = 'asset-import-summary'; form.append(summary);
+  const error = document.createElement('p'); error.className = 'asset-import-error'; error.setAttribute('role', 'alert'); error.hidden = true; form.append(error);
+  const submit = document.createElement('button'); submit.type = 'submit'; submit.className = 'button primary'; submit.disabled = true; submit.textContent = replacing ? 'Remplacer' : 'Importer'; form.append(submit); body.append(form);
+  let payload = null, readRequest = 0;
+  const readFile = async () => {
+    const request = ++readRequest; payload = null; submit.disabled = true; error.hidden = true;
+    const file = [...input.files].find(entry => kind === 'model' ? /\.(obj|json|gltf|glb)$/iu.test(entry.name) : /\.png$/iu.test(entry.name));
+    if (!file) { summary.textContent = ''; return; }
+    if (!name.value) name.value = file.name.replace(/\.[^.]+$/u, '');
+    summary.textContent = translate('Lecture de l’asset…');
+    try {
+      const result = kind === 'model' ? await parseModelFiles(input.files, axis.value) : await readPngFile(file);
+      if (request !== readRequest || !form.isConnected) return;
+      payload = result;
+      summary.textContent = kind === 'model' ? `${number(result.positions.length / 3)} ${translate('sommets')} · ${number(result.indices.length / 3)} triangles` : `${file.name} · ${size(file.size)}`;
+      submit.disabled = false;
+    } catch (failure) { if (request === readRequest) { summary.textContent = ''; error.textContent = translate(failure.message); error.hidden = false; } }
+  };
+  input.addEventListener('change', () => { if (axis && /\.(gltf|glb)$/iu.test([...input.files].find(file => /\.(gltf|glb)$/iu.test(file.name))?.name || '')) axis.value = 'y'; readFile(); });
+  axis?.addEventListener('change', readFile);
+  form.addEventListener('submit', async event => {
+    event.preventDefault(); if (!payload || !name.value.trim()) return;
+    submit.disabled = true; error.hidden = true;
+    try {
+      const action = `${replacing ? 'replace' : 'import'}-${kind}`;
+      const model = kind === 'model' ? { ...payload, ...(texture.value ? { textureId: texture.value } : {}), ...(coordinateSpace ? { coordinateSpace: coordinateSpace.value } : {}) } : null;
+      const request = { name: name.value.trim(), ...(replacing ? { id: kind === 'texture' ? texture.value : targetId } : {}),
+        ...(kind === 'model' ? { model, ...(!replacing ? { position: orbit.target.toArray() } : {}) } : { image: payload }) };
+      const result = await assetMutation(action, request);
+      if (result) showAssetResult(result, replacing ? 'Asset remplacé' : 'Asset importé');
+    } catch (failure) { error.textContent = translate(failure.message); error.hidden = false; submit.disabled = false; }
+  });
+}
+
 function setFly(enabled) {
   state.fly = enabled;
   freeNavigation.enable(enabled);
   $('flyBtn').classList.toggle('active', enabled); $('flyBtn').setAttribute('aria-pressed', String(enabled));
   updateNavigationHint();
-  if (enabled) viewport.focus({ preventScroll: true });
+  if (enabled) renderer.domElement.focus({ preventScroll: true });
   toast(enabled ? 'Caméra libre activée · clic droit pour regarder sur place. Espace monte, Ctrl descend. Maj accélère, Alt ralentit.' : 'Caméra orbitale activée');
 }
 
@@ -1640,6 +1815,7 @@ function updateNavigationHint() {
   $('cameraHint').replaceChildren();
   const hint = state.fly ? `${getLanguage() === 'fr' ? 'Z / Q / S / D' : 'W / Q / S / D'} · ${translate('Clic droit : regarder à 360°')} · ${translate('Flèches : regarder sur place')} · ${translate('Maj : rapide · Alt : lent')}` : translate('Souris : orbiter · Molette : zoomer · F : cadrer');
   $('cameraHint').textContent = hint;
+  $('navigationMode').textContent = translate(state.fly ? 'Caméra libre' : 'Caméra orbitale');
 }
 
 transform.addEventListener('dragging-changed', event => { orbit.enabled = !event.value && !state.fly; });
@@ -1684,20 +1860,32 @@ const resize = new ResizeObserver(() => {
   const width = viewport.clientWidth; const height = viewport.clientHeight;
   if (!width || !height) return;
   renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix();
+  renderDirty = true;
 });
 resize.observe(viewport);
+
+const renderedPosition = new THREE.Vector3();
+const renderedQuaternion = new THREE.Quaternion();
+let renderedZoom = NaN;
+// Editor controls may change visibility or the selection without changing the
+// camera. Mark those changes once; a static level does not need 60 GPU draws.
+for (const type of ['click', 'change', 'input', 'keydown']) document.addEventListener(type, () => { renderDirty = true; }, { capture: true });
 
 function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.05);
+  if (document.hidden) { freeNavigation.reset(); return; }
   freeNavigation.update(delta);
   if (!state.fly) orbit.update();
-  selectionBox?.update();
-  updateAnimations(performance.now());
-  renderViewport();
-  if (dialogModel) { dialogModel.orbit.update(); dialogModel.renderer.render(dialogModel.scene, dialogModel.camera); }
-  fpsFrames++;
   const now = performance.now();
+  const animated = updateAnimations(now);
+  const cameraChanged = !camera.position.equals(renderedPosition) || !camera.quaternion.equals(renderedQuaternion) || camera.zoom !== renderedZoom;
+  if (renderDirty || animated || cameraChanged || transform.dragging) {
+    renderViewport(); renderDirty = false;
+    renderedPosition.copy(camera.position); renderedQuaternion.copy(camera.quaternion); renderedZoom = camera.zoom;
+    fpsFrames++;
+  }
+  if (dialogModel) { dialogModel.orbit.update(); dialogModel.renderer.render(dialogModel.scene, dialogModel.camera); }
   $('cameraPosition').hidden = !state.fly;
   if (state.fly && now - cameraHudTime > 150) {
     camera.getWorldDirection(cameraHudDirection);
@@ -1707,7 +1895,7 @@ function animate() {
     $('cameraPosition').textContent = `${['X', 'Y', 'Z'].map((axis, i) => `${axis} ${decimal(camera.position.getComponent(i))}`).join(' · ')} | H ${decimal(heading)}° · V ${decimal(pitch)}°`;
     cameraHudTime = now;
   }
-  if (now - fpsStart >= 900) { $('fps').textContent = `${Math.round(fpsFrames * 1000 / (now - fpsStart))} FPS`; fpsStart = now; fpsFrames = 0; }
+  if (now - fpsStart >= 900) { $('fps').textContent = fpsFrames ? `${Math.round(fpsFrames * 1000 / (now - fpsStart))} FPS` : translate('Repos'); fpsStart = now; fpsFrames = 0; }
 }
 animate();
 
@@ -1780,18 +1968,21 @@ $('resetTransformBtn').addEventListener('click', () => { const item = state.item
 $('helpBtn').addEventListener('click', () => {
   const body = openDialog('Commandes et raccourcis');
   const keys = getLanguage() === 'fr' ? 'Z / Q / S / D' : 'W / Q / S / D';
-  const rows = [['Orbiter autour du niveau', 'Clic gauche + glisser'], ['Regarder à 360° sur place', 'Caméra libre · clic droit + glisser'], ['Flèches : regarder sur place', '← / → / ↑ / ↓'], ['Avancer / gauche / reculer / droite', keys], ['Vitesse de déplacement', 'Menu Vitesse · Maj accélère · Alt ralentit'], ['Monter / descendre en caméra libre', 'Espace / Ctrl'], ['Zoomer', 'Molette'], ['Déplacer / tourner / redimensionner', 'W / E / R · repère monde / local'], ['Rotation et échelle précises', 'Champs locaux de l’inspecteur · degrés'], ['Verrouiller la sélection', 'Bouton Verrouiller dans l’inspecteur'], ['Sélectionner un élément', 'Clic sur la vue ou la hiérarchie'], ['Cadrer la sélection / tout le niveau', 'F / Home'], ['Annuler / rétablir', 'Ctrl Z / Ctrl Y'], ['Enregistrer le projet', 'Ctrl S'], ['Désélectionner', 'Échap']];
+  const rows = [['Orbiter autour du niveau', 'Caméra orbitale · clic gauche + glisser'], ['Regarder à 360° sur place', 'Caméra libre · clic droit + glisser'], ['Flèches : regarder sur place', '← / → / ↑ / ↓'], ['Avancer / gauche / reculer / droite', keys], ['Vitesse de déplacement', 'Menu Vitesse · Maj accélère · Alt ralentit'], ['Monter / descendre en caméra libre', 'Espace / Ctrl'], ['Zoomer', 'Molette'], ['Déplacer / tourner / redimensionner', 'W / E / R · caméra orbitale / repère monde / local'], ['Rotation et échelle précises', 'Champs locaux de l’inspecteur · degrés'], ['Verrouiller la sélection', 'Bouton Verrouiller dans l’inspecteur'], ['Sélectionner un élément', 'Clic sur la vue ou la hiérarchie'], ['Cadrer la sélection / tout le niveau', 'F / Home'], ['Annuler / rétablir', 'Ctrl Z / Ctrl Maj Z'], ['Enregistrer le projet', 'Ctrl S'], ['Désélectionner', 'Échap']];
+  rows.push(['Caméra libre / orbitale', 'Tab · vue 3D active'], ['Dupliquer la sélection', 'Ctrl D'], ['Supprimer l’ajout sélectionné', 'Suppr'], ['Restaurer le niveau d’origine', 'Édition → Restaurer le niveau d’origine'], ['Importer / remplacer modèles et textures', 'Menu Importation'], ['Exporter le mod', 'Ctrl Maj E']);
   const grid = document.createElement('div'); grid.className = 'shortcut-grid';
   rows.forEach(row => row.forEach(value => { const span = document.createElement('span'); span.textContent = translate(value); grid.append(span); }));
   body.append(grid);
+  const note = document.createElement('p'); note.className = 'dialog-note'; note.textContent = 'Cliquez dans la vue 3D pour activer les déplacements. Les raccourcis de navigation sont suspendus dans les champs de texte et les fenêtres de dialogue.'; body.append(note);
 });
 $('dialogClose').addEventListener('click', () => $('infoDialog').close());
-$('infoDialog').addEventListener('close', cleanDialogPreview);
+$('infoDialog').addEventListener('close', () => { cleanDialogPreview(); renderer.domElement.focus({ preventScroll: true }); renderDirty = true; });
 $('infoDialog').addEventListener('click', event => { if (event.target === $('infoDialog')) { const bounds = $('infoDialog').getBoundingClientRect(); if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) $('infoDialog').close(); } });
 
 window.addEventListener('keydown', async event => {
   if ($('infoDialog').open) return;
-  const editing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+  const active = document.activeElement;
+  const editing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(active?.tagName) || active?.isContentEditable || active?.closest?.('[contenteditable="true"], [role="textbox"]');
   if (freeNavigation.consumesKey(event)) return;
   const key = event.key.toLowerCase();
   if ((event.ctrlKey || event.metaKey) && key === 's') { event.preventDefault(); document.activeElement?.blur(); await pendingMutation; saveProject(); return; }
@@ -1800,12 +1991,20 @@ window.addEventListener('keydown', async event => {
     if (key === 's') { event.preventDefault(); saveProject(); }
     if (key === 'z') { event.preventDefault(); historyAction(event.shiftKey ? 'redo' : 'undo'); }
     if (key === 'y') { event.preventDefault(); historyAction('redo'); }
+    if (key === 'd') { event.preventDefault(); duplicateSelection(); }
+    if (key === 'e' && event.shiftKey) { event.preventDefault(); exportMod(); }
     return;
   }
+  if (key === 'tab' && viewport.contains(document.activeElement)) { event.preventDefault(); setFly(!state.fly); renderer.domElement.focus({ preventScroll: true }); return; }
+  if (key === 'delete') { event.preventDefault(); deleteAddition(); return; }
   if (key === 'f' && !freeNavigation.looking) { event.preventDefault(); frameObject(state.items.get(state.selected)?.object); }
   if (event.code === 'Home') { event.preventDefault(); frameObject(); }
-  if (event.code === 'Escape') { selectItem(null); freeNavigation.reset(); }
-  if (!freeNavigation.looking && !event.repeat && ['w', 'e', 'r'].includes(key)) setTool({ w: 'translate', e: 'rotate', r: 'scale' }[key]);
+  if (event.code === 'Escape') {
+    const menu = document.querySelector('.editor-menu[open]');
+    if (menu) { menu.open = false; renderer.domElement.focus({ preventScroll: true }); return; }
+    selectItem(null); freeNavigation.reset();
+  }
+  if (!freeNavigation.looking && !event.repeat && ['w', 'e', 'r'].includes(key) && !(state.fly && key === 'w')) setTool({ w: 'translate', e: 'rotate', r: 'scale' }[key]);
 });
 window.addEventListener('beforeunload', event => { if (state.unsaved || state.importing) { event.preventDefault(); event.returnValue = ''; } });
 
@@ -1818,10 +2017,27 @@ const sourceImport = createSourceImport({ api, openDialog, translate, formatNumb
     $('assetScope').value = 'level'; freeNavigation.reset(); cleanScene(); await initialize();
   } });
 $('importIsoBtn').addEventListener('click', sourceImport.show);
+const menuActions = {
+  importIso: sourceImport.show, save: saveProject, export: exportMod, undo: () => historyAction('undo'), redo: () => historyAction('redo'),
+  duplicate: duplicateSelection, delete: deleteAddition, resetLevel: showResetLevel,
+  importModel: () => showAssetImport('model'), replaceModel: () => showAssetImport('model', state.selected),
+  importTexture: () => showAssetImport('texture'), replaceTexture: () => showAssetImport('texture', state.data?.textures?.[0]?.id ?? null),
+  freeCamera: () => setFly(true), orbitCamera: () => setFly(false), frame: () => frameObject(state.items.get(state.selected)?.object),
+  frameAll: () => frameObject(), viewSettings: showViewSettings, help: () => $('helpBtn').click(),
+};
+const closeMenus = () => document.querySelectorAll('.editor-menu[open]').forEach(menu => { menu.open = false; });
+document.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', () => {
+  closeMenus(); menuActions[button.dataset.action]?.();
+  if (!$('infoDialog').open) renderer.domElement.focus({ preventScroll: true });
+}));
+document.querySelectorAll('.editor-menu').forEach(menu => menu.addEventListener('toggle', () => {
+  if (menu.open) document.querySelectorAll('.editor-menu').forEach(other => { if (other !== menu) other.open = false; });
+}));
+document.addEventListener('pointerdown', event => { if (!event.target.closest('.editor-menu')) closeMenus(); });
 $('lockBtn').addEventListener('click', () => changeLock(!state.items.get(state.selected)?.locked));
 $('lockAllBtn').addEventListener('click', () => changeLock(true, true));
 $('unlockAllBtn').addEventListener('click', () => changeLock(false, true));
-$('flySpeedSelect').addEventListener('change', () => { freeNavigation.reset(); if (state.fly) viewport.focus({ preventScroll: true }); });
+$('flySpeedSelect').addEventListener('change', () => { freeNavigation.reset(); if (state.fly) renderer.domElement.focus({ preventScroll: true }); });
 onLanguageChange(() => {
   freeNavigation.reset(); updateNavigationHint();
   $('levelSelect').querySelectorAll('option').forEach(option => {
@@ -1838,5 +2054,6 @@ onLanguageChange(() => {
   updateActions();
 });
 updateNavigationHint();
+freeNavigation.enable(state.fly, { focusViewport: false });
 
 initialize();

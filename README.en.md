@@ -1,14 +1,34 @@
-# Azurik Level Studio 1.0.0
+# Azurik Level Studio 2.0.0
 
-**The first official release** of the Azurik level editor: a local Windows application for viewing and editing levels from your own copy of **Azurik: Rise of Perathia** on the original Xbox.
+**Version 2.0.0** of the Azurik level editor: a local Windows application for viewing and editing levels from your own copy of **Azurik: Rise of Perathia** on the original Xbox.
 
-[Windows download](https://github.com/AzurikPerathia/Azurik-Level-Editor/releases/tag/v1.0.0) · [French guide](README.fr.md) · [Screenshots](docs/SCREENSHOTS.md) · [Next version](ROADMAP.md)
+[Windows download](https://github.com/AzurikPerathia/Azurik-Level-Editor/releases/tag/v2.0.0) · [French guide](README.fr.md) · [Screenshots](docs/SCREENSHOTS.md) · [Next version](ROADMAP.md)
 
-![Air A5 overview in the editor](docs/screenshots/air-a5-overview.png)
+![Version 2.0.0 editor menus](docs/screenshots/v2-editor-menus.jpg)
+
+## New in 2.0.0
+
+- **Camera controls fixed:** free camera by default, recovered viewport focus, right-drag and arrow-key looking from the same position, with slow/normal/fast movement.
+- **Visible menus:** File, Edit, Import, View and Help show named actions and keyboard shortcuts.
+- **Reversible level restoration:** restore the active level to its original source state as one undoable action, including asset edits. Other levels and source files remain intact.
+- **Ctrl Z / Ctrl Shift Z:** undo and redo transforms, imports, replacements, duplication and restoration. Ctrl Y remains an alias.
+- **Static model import/replacement:** OBJ, geometry JSON and glTF/GLB. Compatible existing geometry can be replaced in game exports; new geometry and duplicates are clearly labelled project previews.
+- **Model duplication:** independent editable project instances, preserved on save and in the separate preview-asset export.
+- **PNG texture import/replacement:** assign textures to imported models, or replace supported native level surfaces with matching dimensions and mipmaps.
+- **Performance:** cached static transfers and less repeated viewport work; decoding large levels still takes time.
+- **Perathia Modding Hub artwork** supplied by the owner as the executable/window icon, with Windows version metadata updated to 2.0.0.
+
+See the [V2 editing guide](docs/EDITING_V2.md) for compatibility rules and preview export limits.
+
+## Testing modified game files
+
+EDIT : You need to clear the cache for the changes you make to take effect ! Don’t worry, this won’t affect your save files in any way!
+
+This refers **only to Xbox game cache partitions**. Use **Clear Cache** in xemu-dashboard or **Flush Cache Partitions** in LithiumX, then restart with the modified disc. Keep the virtual hard drive and the E partition containing game saves. [Instructions and Xemu references](docs/GAME_CACHE.md).
 
 ## Run on Windows
 
-1. Download **Azurik-Level-Studio-1.0.0-Windows-x64.zip** from the release and extract it.
+1. Download **Azurik-Level-Studio-2.0.0-Windows-x64.zip** from the release and extract it.
 2. Double-click **Azurik Level Studio.exe**. This real Windows executable includes Python and the application dependencies; no Python installation is necessary.
 3. Click **Import ISO / Importer un ISO**, select your local Azurik Xbox `.iso` or `.xiso`, and wait for extraction. You can also enter its local path.
 4. Choose a level, select an object, unlock it when necessary, then use the transform tools or precise inspector fields.
@@ -16,9 +36,11 @@
 
 The repository contains the executable at `windows/Azurik Level Studio.exe`. **Ouvrir Azurik Level Studio.bat** is an optional launcher; `.cmd` and PowerShell launchers are included too. The application opens its own desktop window and uses Microsoft Edge WebView2 for the viewport. Windows x64, .NET Framework and the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) are required. WebView2 is normally already installed on recent Windows systems.
 
-Projects, imports, caches, exports and logs for the executable live in **`%LOCALAPPDATA%\AzurikLevelStudio`**, separate from bundled application files. The launcher reuses an existing Azurik server on port 8766, preserving its project; it stops only a server it started itself. No console window is required.
+Projects, imports, caches, exports and logs for the executable live in **`%LOCALAPPDATA%\AzurikLevelStudio`**, separate from bundled application files. The launcher reuses an Azurik server only when its version matches. An older editor is left running and a free local port is selected. It stops only its own server. No console window is required.
 
-## Features in 1.0.0
+Back up an existing project before V2 asset editing, which upgrades its format to version 2. Close older editor windows before editing the same project.
+
+## Included explorer and editing features
 
 - **3D explorer:** scenery, placed models, sky variants, textures, materials, source normals and placement hierarchy. Static LEVL terrain includes mountains, cliffs and structures.
 - **33 detected levels** in the inspected European dump; availability follows your own disc's files.
@@ -42,7 +64,7 @@ Projects, imports, caches, exports and logs for the executable live in **`%LOCAL
 | Up / down | Space / Ctrl |
 | Speed | Slow / Normal / Fast; Shift accelerates, Alt slows |
 | Move / rotate / scale | W / E / R when free camera is not consuming the keys |
-| Undo / redo / save | Ctrl Z / Ctrl Y / Ctrl S |
+| Undo / redo / save | Ctrl Z / Ctrl Shift Z (or Ctrl Y) / Ctrl S |
 | Deselect | Escape |
 
 Focus the viewport before navigating. Keys follow their letter labels, including AZERTY. Text fields, dialogs and active gizmos suspend navigation; losing focus clears held keys. English **WQSD** is intentional. Language selection translates the editor interface, not the game's dialogue.
@@ -51,7 +73,7 @@ Focus the viewport before navigating. Keys follow their letter labels, including
 
 Source archives and input images are read-only. Placements with verified serialized bindings are written to **new XBR copies**, with original/output checksums and changed-byte reports. Other decoded blocks use clearly marked **preview-only overrides**. These are saved separately in `scene-overrides.json`, not silently applied to the game. Game edits and preview edits have separate counts.
 
-**Visual transforms do not move collision geometry.** Check collisions and gameplay in your test copy. The editor exports modified archives; automatic complete ISO rebuilding is not a feature of 1.0.0.
+**Visual transforms do not move collision geometry.** Check collisions and gameplay in your test copy. The editor exports modified archives; automatic complete ISO rebuilding is not a feature of 2.0.0.
 
 The renderer reads game data without running the complete Xbox engine. Characters appear in bind pose. Scripts, skeletal animation, particles, point/spot lighting and some generated texture coordinates remain partial. Skies and the verified A5 two-layer fog/reflection path are supported, with explicit day/night previews. A pixel-identical gameplay render is not claimed. [Screenshot captions](docs/SCREENSHOTS.md) distinguish editor views from gameplay validation.
 
@@ -70,7 +92,7 @@ The optional browser mode uses `requirements.txt` and `python server.py --open`.
 
 On Windows x64 with Python 3.11+, run **Build Windows.ps1** to compile the executable. It installs `requirements-build.txt`, runs `desktop.spec`, then writes the binary and checksums into `windows/`. The build excludes projects, imports, exports and game data. [Windows build guide](docs/WINDOWS.md).
 
-For sorted assets, run `python export_assets.py --help`. Keep glTF files with their `.bin` and texture folders. This exports existing resources; model/texture import and replacement are planned for the [next version](ROADMAP.md).
+For sorted assets, run `python export_assets.py --help`. Keep glTF files with their `.bin` and texture folders. This exports existing resources. The 2.0.0 import/replacement tools are described in the [editing guide](docs/EDITING_V2.md); arbitrary native allocation remains in the [roadmap](ROADMAP.md).
 
 ## Tests and project links
 

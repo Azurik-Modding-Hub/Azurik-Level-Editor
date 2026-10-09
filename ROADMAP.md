@@ -1,15 +1,18 @@
-# Planned next version
+# Roadmap after 2.0.0
 
-Version **1.0.0** is the first official release. These features are planned for the next version and are not available in 1.0.0:
+Version **2.0.0** includes persisted model import/replacement/duplication and PNG texture import/replacement. Validated compatible replacements can be written to existing game resources. New models, duplicated scene instances and new texture allocation remain explicitly labelled project previews.
 
-- Import models into the editor and supported game resources.
-- Replace models while checking their source references.
-- Duplicate models or placements with new valid references.
-- Import textures with explicit format, size, mipmap and transparency handling.
-- Replace textures and update the affected resource references.
+Future work:
 
-Operations should preserve original game files, provide previews/reports, support undo where possible, and distinguish game-exportable changes from editor-only previews. Archive rebuilding, resource allocation, collisions and in-game compatibility need validation before export support is advertised. No release date is promised.
+- Allocate new native model, texture and scene records with valid references and archive relocation.
+- Export new instances and arbitrary mesh topology to the game.
+- Update collision geometry and related gameplay links alongside visual edits.
+- Expand cubemap, animated texture and unsupported surface replacement.
+- Validate skeletal animations, particles and runtime materials against gameplay.
+- Add complete ISO reconstruction to the application.
+
+These require retail-loader and in-game validation before game export is advertised. No release date is promised.
 
 ## Français
 
-La prochaine version vise l’import, le remplacement et la duplication de modèles, ainsi que l’import et le remplacement de textures. Ces fonctions ne sont pas encore présentes dans la **1.0.0**. Les écritures dans le jeu seront annoncées après validation des références, des archives et du résultat en jeu. Aucune date n’est fixée.
+La **2.0.0** ajoute les imports, remplacements et duplications dans le projet, avec export des remplacements compatibles dans les ressources existantes. Les prochaines étapes concernent l’ajout de nouvelles ressources au jeu, les collisions, les animations et la reconstruction ISO intégrée. Les nouveaux modèles et duplications restent actuellement des aperçus clairement indiqués.

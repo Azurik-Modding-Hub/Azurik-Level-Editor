@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 from studio_paths import ASSET_ROOT, DATA_ROOT
+from project_assets import ProjectAssets
 
 STUDIO_ROOT = DATA_ROOT
 
@@ -68,6 +69,26 @@ PREVIEW_WARNING = "Transformation conservée dans le projet de l’éditeur ; ce
 
 def _hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _scene_copy(value):
+    """Copy scene containers while bulk-copying immutable numeric attributes.
+
+    Deepcopy walks every Python float even though these atoms are immutable;
+    a flat list copy preserves isolation and is substantially cheaper.
+    """
+    if isinstance(value, dict):
+        return {key: _scene_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        if not value or not isinstance(value[0], (dict, list, tuple)):
+            # Scene flat arrays contain numeric/string atoms only. Fall back
+            # for heterogeneous metadata to retain ordinary deepcopy semantics.
+            if all(not isinstance(item, (dict, list, tuple)) for item in value):
+                return value[:]
+        return [_scene_copy(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_scene_copy(item) for item in value)
+    return value
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -217,7 +238,7 @@ def scan_objects(data: bytes) -> list[dict]:
     return objects
 
 
-class StudioBackend:
+class StudioBackend(ProjectAssets):
     """Thread-safe projects; all source bytes stay read-only throughout."""
     def __init__(self, source_dir=DEFAULT_SOURCE, project_dir=None, exports_dir=None, toolkit_dir=DEFAULT_TOOLKIT, texture_dir=None):
         self.source_dir = Path(source_dir).resolve()
@@ -235,7 +256,8 @@ class StudioBackend:
         self._project = {"version": 1, "sourceDir": str(self.source_dir), "levels": {}}
         if self.project_path.exists():
             self._project = json.loads(self.project_path.read_text("utf-8"))
-            if self._project.get("version") != 1 or Path(self._project.get("sourceDir", "")).resolve() != self.source_dir:
+            if (type(self._project.get("version")) is not int or self._project["version"] not in (1, 2)
+                    or Path(self._project.get("sourceDir", "")).resolve() != self.source_dir):
                 raise ValueError("Ce projet appartient à un autre dump source.")
             if not isinstance(self._project.get("levels"), dict):
                 raise ValueError("Projet invalide.")
@@ -251,6 +273,7 @@ class StudioBackend:
                         or any(not isinstance(key, str) or type(value) is not bool for key, value in state.get("locks", {}).items())
                         or not isinstance(state.get("previewEdits", {}), dict)):
                     raise ValueError("Verrouillages ou transformations de scène invalides.")
+                self._asset_defaults(state)
 
     def _source_path(self, level_id: str) -> Path:
         if not isinstance(level_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", level_id):
@@ -293,6 +316,7 @@ class StudioBackend:
         # Loading older projects is an in-memory upgrade; no save is implied.
         state.setdefault("locks", {})
         state.setdefault("previewEdits", {})
+        self._asset_defaults(state)
         return state
 
     def _parse_scene(self, data, level):
@@ -320,7 +344,7 @@ class StudioBackend:
                 for m in re.finditer(rb"(?i)(?:[A-Za-z0-9_./-]+/)?[A-Za-z0-9_.-]+\.(?:dds|tga|bmp|png)\x00", data)]
         refs.extend({"kind": "level", "name": m.group(0)[:-1].decode("ascii"), "offset": m.start()}
                     for m in re.finditer(rb"levels/[A-Za-z0-9_/-]+\x00", data))
-        parsed = self._parse_scene(data, level)
+        parsed = self._parse_scene(self._native_buffer(data, state), level)
         scene = {"id": level, "name": LEVEL_NAMES.get(level, level), "coordinateSystem": "Z-up",
                  "sourceHash": digest, "meshes": parsed.get("meshes", []), "objects": parsed.get("objects", []),
                  "nodes": parsed.get("nodes", []), "assets": parsed.get("assets", []), "sceneGraphResolved": bool(parsed.get("nodes")),
@@ -460,8 +484,20 @@ class StudioBackend:
         with self._lock:
             from scene_graph import identity, inverse_affine, multiply, transform_point, transform_normals, effective_parent_matrix
             self._source_path(level_id)
+            self._load(level_id)  # Check source stamps even when the public scene is reusable.
+            state = self._state(level_id)
+            from project_assets import ASSET_KEYS
+            signature = _hash(json.dumps({key: state[key] for key in ASSET_KEYS} | {"locks": state["locks"],
+                                          "canUndo": bool(state["undo"]), "canRedo": bool(state["redo"]),
+                                          "sourceHash": state["sourceHash"]}, sort_keys=True, allow_nan=False).encode("utf-8"))
+            prepared = getattr(self, "_prepared_scenes", {})
+            self._prepared_scenes = prepared
+            if level_id in prepared and prepared[level_id][0] == signature:
+                cached = _scene_copy(prepared[level_id][1])
+                cached["pendingCount"], cached["previewCount"] = self.pending_count(), self.preview_count()
+                return cached
             original, matrices, locals_ = self._world_state(level_id)
-            scene = copy.deepcopy(original)
+            scene = _scene_copy(original)
             edits = self._state(level_id)["edits"]
             for node in scene["nodes"]:
                 index, parent = node["index"], node["parent"]
@@ -521,6 +557,7 @@ class StudioBackend:
             for item in scene["meshes"]:
                 item.pop("_localPositions", None)
                 item.pop("_localOrigin", None)
+            self._apply_assets(level_id, scene)
             self._apply_previews(level_id, scene)
             explicit = self._state(level_id)["locks"]
             for item in scene["meshes"] + scene["objects"]:
@@ -546,13 +583,16 @@ class StudioBackend:
                 apply_source_lighting(data, read_sections(data), scene)
             except (ValueError, struct.error) as exc:
                 scene["capabilities"]["warnings"].append(f"Éclairage source non résolu : {exc}")
-            scene["stats"]["pendingCount"] = len(edits)
-            scene["stats"]["previewCount"] = len(self._state(level_id)["previewEdits"])
+            scene["stats"]["pendingCount"] = self.pending_count(level_id)
+            scene["stats"]["previewCount"] = self.preview_count(level_id)
             scene["stats"]["lockedCount"] = sum(item["locked"] for item in scene["meshes"] + scene["objects"])
             scene["pendingCount"] = self.pending_count()
             scene["previewCount"] = self.preview_count()
             scene["capabilities"]["previewTransforms"] = True
             scene["history"] = {"canUndo": bool(self._state(level_id)["undo"]), "canRedo": bool(self._state(level_id)["redo"])}
+            if len(prepared) >= 2 and level_id not in prepared:
+                prepared.pop(next(iter(prepared)))
+            prepared[level_id] = (signature, _scene_copy(scene))
             return scene
 
     def _find_item(self, level, item_id):
@@ -561,7 +601,13 @@ class StudioBackend:
         _, scene = self._load(level)
         item = next((row for row in scene["objects"] + scene["meshes"] if row["id"] == item_id), None)
         if item is None:
+            item = self._asset_item(level, item_id)
+        if item is None:
             raise ValueError("Objet introuvable dans ce niveau.")
+        if item_id in self._state(level)["modelOverrides"]:
+            item = copy.deepcopy(item)
+            item["editable"] = False
+            item.pop("editBinding", None)
         return item
 
     @staticmethod
@@ -612,7 +658,8 @@ class StudioBackend:
                 raise ValueError("Le verrouillage doit être vrai ou faux.")
             _, scene = self._load(level)
             if all_items:
-                items = scene["meshes"] + scene["objects"]
+                displayed = self.get_scene(level)
+                items = displayed["meshes"] + displayed["objects"]
             else:
                 item = self._find_item(level, item_id)
                 items = [item]
@@ -663,6 +710,12 @@ class StudioBackend:
                     item["normals"], verified = transform_normals(item["worldMatrix"], item["sourceNormals"])
                     item["normalTransformVerified"] = verified
                     item["normalSpace"] = "world" if verified else "local-fallback"
+                elif item.get("normals"):
+                    # Imported and replacement geometry carries already-world
+                    # normals. Transform these by the preview delta rather than
+                    # skipping them merely because a world matrix is present.
+                    item["normals"], verified = transform_normals(delta, item["normals"])
+                    item["normalTransformVerified"] = verified
             elif item.get("normals"):
                 item["normals"], _ = transform_normals(delta, item["normals"])
             item.update(position=target, localRotation=record["rotation"], localScale=record["scale"],
@@ -848,6 +901,8 @@ class StudioBackend:
             if not source:
                 return {"changed": False, "pendingCount": self.pending_count(), "levelPendingCount": len(state["edits"]), "canUndo": bool(state["undo"]), "canRedo": bool(state["redo"])}
             row = source[-1]
+            if isinstance(row, dict) and row.get("operation") == "assets":
+                return self._asset_history(level, undo)
             if not isinstance(row, dict) or not isinstance(row.get("id"), str) or "before" not in row or "after" not in row:
                 raise ValueError("Entrée d’historique invalide.")
             self._assert_unlocked(level, row["id"])
@@ -903,20 +958,23 @@ class StudioBackend:
 
     def pending_count(self, level_id=None):
         if level_id is not None:
-            return len(self._project["levels"].get(level_id, {}).get("edits", {}))
-        return sum(len(row.get("edits", {})) for row in self._project["levels"].values())
+            state = self._project["levels"].get(level_id, {})
+            return len(state.get("edits", {})) + len(state.get("assetEdits", {}))
+        return sum(len(row.get("edits", {})) + len(row.get("assetEdits", {})) for row in self._project["levels"].values())
 
     def preview_count(self, level_id=None):
+        def count(state):
+            return (len(state.get("previewEdits", {})) + sum(len(state.get(key, {})) for key in ("models", "textures", "modelOverrides", "textureOverrides")))
         if level_id is not None:
-            return len(self._project["levels"].get(level_id, {}).get("previewEdits", {}))
-        return sum(len(row.get("previewEdits", {})) for row in self._project["levels"].values())
+            return count(self._project["levels"].get(level_id, {}))
+        return sum(count(row) for row in self._project["levels"].values())
 
     def project_summary(self):
         with self._lock:
             return {"path": str(self.project_path), "sourceDir": str(self.source_dir),
                     "pendingCount": self.pending_count(), "previewCount": self.preview_count(),
-                    "editedLevels": [level for level, row in self._project["levels"].items() if row.get("edits") or row.get("previewEdits")],
-                    "levels": {level: {"pendingCount": len(row.get("edits", {})), "previewCount": len(row.get("previewEdits", {})),
+                    "editedLevels": [level for level, row in self._project["levels"].items() if self.pending_count(level) or self.preview_count(level)],
+                    "levels": {level: {"pendingCount": self.pending_count(level), "previewCount": self.preview_count(level),
                                        "lockedCount": sum(bool(value) for value in row.get("locks", {}).values()),
                                        "canUndo": bool(row.get("undo")), "canRedo": bool(row.get("redo"))} for level, row in self._project["levels"].items()}}
 
@@ -940,7 +998,7 @@ class StudioBackend:
                         preview_levels[level]["overrides"][item_id] = self._validated_preview(level, item_id, record)
                     if PREVIEW_WARNING not in warnings:
                         warnings.append(PREVIEW_WARNING)
-                if not state["edits"]:
+                if not state["edits"] and not state.get("assetEdits"):
                     continue
                 source = self._source_path(level).read_bytes()
                 if _hash(source) != state["sourceHash"]:
@@ -949,7 +1007,18 @@ class StudioBackend:
                 if source != original:
                     raise ValueError(f"Export annulé : {level}.xbr diffère de la source analysée.")
                 self._world_state(level)  # Reject conflicting node edits before creating any output.
-                buffer, allowed, allowed_offsets = bytearray(source), set(), set()
+                buffer, allowed_ranges, allowed_offsets = bytearray(source), [], set()
+                for offset, payload, entry in self._native_patches(source, state):
+                    allowed_ranges.append((offset, offset + len(payload)))
+                    allowed_offsets.add(offset)
+                    buffer[offset:offset + len(payload)] = payload
+                    edits.append({"op": "replace_bytes", "xbr_file": f"{level}.xbr", "offset": offset,
+                                  "value": payload.hex(), "value_kind": "hex", "label": f"Studio asset: {entry['name']}",
+                                  "original": source[offset:offset + len(payload)].hex()})
+                if state.get("assetEdits"):
+                    from asset_editing import MODEL_WARNING, TEXTURE_WARNING
+                    warnings.extend(warning for warning in (MODEL_WARNING, TEXTURE_WARNING)
+                                    if any(e["kind"] == ("mesh" if warning == MODEL_WARNING else "texture") for e in state["assetEdits"].values()) and warning not in warnings)
                 for item_id, edit in state["edits"].items():
                     item, channels = self._validated_edit(level, item_id, edit)
                     mesh = item_id.startswith("mesh-")
@@ -959,9 +1028,9 @@ class StudioBackend:
                             continue
                         if source[offset:offset + 12].hex() != validated["original"]:
                             raise ValueError("Export annulé : octets originaux inattendus.")
-                        if any(n in allowed for n in range(offset, offset + 12)):
+                        if any(offset < end and start < offset + 12 for start, end in allowed_ranges):
                             raise ValueError("Export annulé : modifications superposées.")
-                        allowed.update(range(offset, offset + 12))
+                        allowed_ranges.append((offset, offset + 12))
                         allowed_offsets.add(offset)
                         buffer[offset:offset + 12] = payload
                         edits.append({"op": "replace_bytes", "xbr_file": f"{level}.xbr", "offset": offset,
@@ -969,14 +1038,31 @@ class StudioBackend:
                                       "original": source[offset:offset + 12].hex()})
                     if mesh and MESH_WARNING not in warnings:
                         warnings.append(MESH_WARNING)
-                differences = [i for i, (a, b) in enumerate(zip(source, buffer)) if a != b]
-                if len(buffer) != len(source) or any(i not in allowed for i in differences):
+                if len(buffer) != len(source):
+                    raise ValueError("Export annulé : modification en dehors des paramètres autorisés.")
+                # Validate unchanged gaps using bulk comparisons, then count
+                # changes only inside native/transform ranges. Pixel edits can
+                # span megabytes; allocating a Python set per byte is avoided.
+                merged = []
+                for start, end in sorted(allowed_ranges):
+                    if merged and start <= merged[-1][1]:
+                        merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+                    else:
+                        merged.append((start, end))
+                cursor, changed_bytes = 0, 0
+                for start, end in merged:
+                    if source[cursor:start] != buffer[cursor:start]:
+                        raise ValueError("Export annulé : modification en dehors des paramètres autorisés.")
+                    changed_bytes += sum(a != b for a, b in zip(source[start:end], buffer[start:end]))
+                    cursor = end
+                if source[cursor:] != buffer[cursor:]:
                     raise ValueError("Export annulé : modification en dehors des paramètres autorisés.")
                 prepared.append((level, bytes(buffer)))
                 reports.append({"level": level, "sourceSha256": _hash(source), "exportSha256": _hash(buffer),
-                                "sourceBytes": len(source), "exportBytes": len(buffer), "changedBytes": len(differences),
-                                "edits": len(state["edits"]), "allowedOffsets": sorted(allowed_offsets)})
-            if not prepared and not preview_levels:
+                                "sourceBytes": len(source), "exportBytes": len(buffer), "changedBytes": changed_bytes,
+                                "edits": self.pending_count(level), "allowedOffsets": sorted(allowed_offsets)})
+            has_assets = any(any(state.get(key) for key in ("models", "modelOverrides", "textures", "textureOverrides", "assetEdits")) for state in self._project["levels"].values())
+            if not prepared and not preview_levels and not has_assets:
                 raise ValueError("Aucune modification à exporter.")
             folder = self.exports_dir / (datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:8])
             if _inside(folder, self.source_dir):
@@ -984,11 +1070,16 @@ class StudioBackend:
             (folder / "gamedata").mkdir(parents=True, exist_ok=False)
             for level, data in prepared:
                 (folder / "gamedata" / f"{level}.xbr").write_bytes(data)
+            self._export_assets(folder, preview_levels)
+            if self.preview_count() and has_assets:
+                from asset_editing import ASSET_WARNING
+                if ASSET_WARNING not in warnings:
+                    warnings.append(ASSET_WARNING)
             mod = {"name": "Azurik Level Studio", "source_dump": str(self.source_dir), "xbr_edits": edits,
                    "source_hashes": {r["level"] + ".xbr": r["sourceSha256"] for r in reports}}
             (folder / "mod.json").write_text(json.dumps(mod, ensure_ascii=False, indent=2, allow_nan=False), "utf-8")
             if preview_levels:
-                overrides = {"version": 1, "format": "azurik-studio-scene-overrides", "gameExportable": False,
+                overrides = {"version": 2 if has_assets else 1, "format": "azurik-studio-scene-overrides", "gameExportable": False,
                              "warning": PREVIEW_WARNING, "levels": preview_levels}
                 (folder / "scene-overrides.json").write_text(json.dumps(overrides, ensure_ascii=False, indent=2, allow_nan=False), "utf-8")
             report = {"createdUtc": datetime.now(timezone.utc).isoformat(), "sourceUnchanged": True,
