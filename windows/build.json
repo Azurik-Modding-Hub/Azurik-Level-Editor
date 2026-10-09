@@ -1,0 +1,12 @@
+{
+  "file": "Azurik Level Studio.exe",
+  "version": "1.0.0",
+  "platform": "Windows x64",
+  "bytes": 22419286,
+  "sha256": "93f4da71ed1d2246999e4f8f6e026ec220dbe7783c96760f80209ef643f09786",
+  "builtUtc": "2026-10-09T14:57:09.316148+00:00",
+  "python": "3.13.13",
+  "pywebview": "6.2.1",
+  "pyinstaller": "6.22.3",
+  "gameDataIncluded": false
+}
