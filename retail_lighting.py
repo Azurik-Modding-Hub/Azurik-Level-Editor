@@ -129,26 +129,31 @@ def _platform_cells(data, node, descriptor_index, sections, cell_count):
 
 
 def _direction(matrix):
-    """CED30/A07A0/A0AB0: runtime ray is minus the parent's forward Z.
+    """CED30/A07A0/A0AB0: recover the retail quaternion and forward ray.
 
-    The direct column equivalent is verified for a uniform orthogonal basis;
-    other bases need the retail quaternion extraction and remain unexecuted.
+    A07A0 removes one scale, the length of the first basis column, before
+    A06A0 converts the matrix. It does not orthogonalize the other columns
+    or normalize that quaternion. D2 authors nonuniform, sheared light
+    parents; rejecting them silently drops a required directional light.
+    The shader constant builder subsequently normalizes the local ray.
     """
     if len(matrix) != 16 or not all(math.isfinite(v) for v in matrix):
         raise ValueError("Transformation de lumière non finie.")
-    columns = [[matrix[row * 4 + col] for row in range(3)] for col in range(3)]
-    lengths = [math.sqrt(sum(v * v for v in column)) for column in columns]
-    if min(lengths) <= 1e-12 or max(lengths) - min(lengths) > max(lengths) * 1e-5:
-        raise ValueError("Échelle de lumière non uniforme.")
-    if any(abs(sum(a * b for a, b in zip(columns[i], columns[j]))) > lengths[i] * lengths[j] * 1e-5
-           for i in range(3) for j in range(i)):
-        raise ValueError("Base de lumière non orthogonale.")
-    # Reflections are not equivalent to a proper quaternion orientation.
-    determinant = sum(columns[0][i] * (columns[1][(i + 1) % 3] * columns[2][(i + 2) % 3]
-                                      - columns[1][(i + 2) % 3] * columns[2][(i + 1) % 3]) for i in range(3))
-    if determinant <= 0:
-        raise ValueError("Base de lumière réfléchie.")
-    return [-v / lengths[2] for v in columns[2]]
+    scale = math.hypot(matrix[0], matrix[4], matrix[8])
+    if not math.isfinite(scale) or scale <= 1e-12:
+        raise ValueError("Échelle de lumière singulière.")
+    orientation = list(matrix)
+    for row in range(3):
+        for col in range(3):
+            orientation[row * 4 + col] /= scale
+    # Imported here because graph assembly also imports this lighting reader.
+    from scene_graph import _matrix_quaternion
+    x, y, z, w = _matrix_quaternion(orientation)
+    ray = [-2 * (x * z + y * w), -2 * (y * z - x * w),
+           -(1 - 2 * (x * x + y * y))]
+    if not all(math.isfinite(v) for v in ray) or math.hypot(*ray) <= 1e-12:
+        raise ValueError("Direction de lumière singulière.")
+    return ray
 
 
 def select_cell_lights(cells, memberships, lights, bounds):

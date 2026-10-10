@@ -1,10 +1,21 @@
-# Azurik Level Studio 2.1.0
+# Azurik Level Studio 2.1.1
 
-**Version 2.1.0** of the Azurik level editor: a local Windows application for viewing and editing levels from your own copy of **Azurik: Rise of Perathia** on the original Xbox.
+**Version 2.1.1** of the Azurik level editor: a local Windows application for viewing and editing levels from your own copy of **Azurik: Rise of Perathia** on the original Xbox.
 
-[Windows download](https://github.com/Azurik-Modding-Hub/Azurik-Level-Editor/releases/tag/v2.1.0) · [French guide](README.fr.md) · [Level management and ISO guide](docs/LEVELS_V21.md) · [Screenshots](docs/SCREENSHOTS.md) · [Roadmap](ROADMAP.md)
+[Windows download](https://github.com/Azurik-Modding-Hub/Azurik-Level-Editor/releases/tag/v2.1.1) · [French guide](README.fr.md) · [Level management and ISO guide](docs/LEVELS_V21.md) · [Screenshots](docs/SCREENSHOTS.md) · [Roadmap](ROADMAP.md)
 
 ![Version 2.0.0 editor menus](docs/screenshots/v2-editor-menus.jpg)
+
+## Patch 2.1.1
+
+- **Separate browsing:** the Explorer has distinct **Levels** and **Cinematics** sections. The inspected European dump contains **24 levels and 9 cinematics**, with independent selectors and counts. Each section remembers its last selection; opening or restoring an entry selects its matching section. Level management and source-template selection show gameplay levels.
+- **D2 lighting:** directional lights now use the native matrix-to-quaternion conversion under non-uniform scene transforms, correcting the incorrectly dark surfaces. The quaternion remains unnormalised; only the final light direction is normalised, as in the game's shader.
+- **D2 interior view:** the initial view opens inside the mauve cavity shell. D2 does not declare a dedicated sky pass: its apparent sky is level scenery. The source green outer cube enclosure is preserved and can appear in exterior views.
+- **Language switching:** custom level names remain unchanged in the selector and viewport header.
+
+![D2 interior view and separate level catalogue in 2.1.1](docs/screenshots/d2-2.1.1.jpg)
+
+This is an editor capture. It illustrates decoded source rendering and catalogue separation; it does not certify gameplay in Xemu. [Screenshot captions](docs/SCREENSHOTS.md#version-211--d2-and-separate-catalogue).
 
 ## New in 2.1.0
 
@@ -48,10 +59,10 @@ This refers **only to Xbox game cache partitions**. Use **Clear Cache** in xemu-
 
 ## Run on Windows
 
-1. Download **Azurik-Level-Studio-2.1.0-Windows-x64.zip** from the release and extract it.
+1. Download **Azurik-Level-Studio-2.1.1-Windows-x64.zip** from the release and extract it.
 2. Double-click **Azurik Level Studio.exe**. This real Windows executable includes Python and the application dependencies; no Python installation is necessary.
 3. Click **Import ISO / Importer un ISO**, select your local Azurik Xbox `.iso` or `.xiso`, and wait for extraction. You can also enter its local path.
-4. Choose a level, select an object, unlock it when necessary, then use the transform tools or precise inspector fields.
+4. Choose **Levels** or **Cinematics** in the Explorer, then select an entry. For editing, select an object, unlock it when necessary, then use the transform tools or precise inspector fields.
 5. **Save** preserves your project. **Export mod** creates new XBR copies, a registry update when needed, an ISO plan and a report. **Levels → Build a mod ISO**, also offered after export, creates a separate test disc from that export and your matching source ISO.
 
 The repository contains the executable at `windows/Azurik Level Studio.exe`. **Ouvrir Azurik Level Studio.bat** is an optional launcher; `.cmd` and PowerShell launchers are included too. The application opens its own desktop window and uses Microsoft Edge WebView2 for the viewport. Windows x64, .NET Framework and the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) are required. WebView2 is normally already installed on recent Windows systems.
@@ -63,7 +74,7 @@ Back up an existing project before upgrading. Asset editing uses project format 
 ## Included explorer and editing features
 
 - **3D explorer:** scenery, placed models, sky variants, textures, materials, source normals and placement hierarchy. Static LEVL terrain includes mountains, cliffs and structures.
-- **33 detected levels** in the inspected European dump; availability follows your own disc's files.
+- **Separate level and cinematic catalogues:** 24 levels and 9 cinematics in the inspected European dump; availability and counts follow your own disc and project.
 - **French / English interface:** switch without reloading the level; labels, messages, numbers and units update. Original resource names retain their identities.
 - **Camera navigation:** orbit, perspective/top/front/side views, framing, free movement, fixed-position looking and speed presets.
 - **Editing:** move, rotate, scale, precise fields, world/local gizmos where supported, restore original placement, undo/redo, saved projects and mod export.
@@ -124,6 +135,8 @@ python -m pytest -q
 ```
 
 Node.js is required for frontend regression tests, not for running the application. Tests cover parsing, transforms/pivots, normals/lighting, asset export, navigation, localization, ISO import isolation, locks, undo/redo, guarded exports, desktop process ownership and frozen data/resource paths. Disc fixtures are synthetic. Optional real-dump checks use `AZURIK_GAME_DUMP` and skip when unavailable.
+
+Version 2.1.1 validation on 10 October 2026: **766 passed, 3 skipped** in 70.69 seconds. These automated checks do not certify gameplay in Xemu.
 
 The editor also lives at `tools/level_studio` in the [Expensions repository](https://github.com/Azurik-Modding-Hub/Elemental_Games_Modding---Expensions), alongside the randomizer. The English contribution is [upstream PR #2](https://github.com/JTCPP/Elemental_Games_Modding/pull/2).
 

@@ -1,10 +1,21 @@
-# Azurik Level Studio 2.1.0
+# Azurik Level Studio 2.1.1
 
-**Version 2.1.0** de l’éditeur de niveaux d’**Azurik: Rise of Perathia**, pour votre propre copie du jeu Xbox.
+**Version 2.1.1** de l’éditeur de niveaux d’**Azurik: Rise of Perathia**, pour votre propre copie du jeu Xbox.
 
-[Télécharger pour Windows](https://github.com/Azurik-Modding-Hub/Azurik-Level-Editor/releases/tag/v2.1.0) · [English guide](README.en.md) · [Niveaux et construction ISO](docs/LEVELS_V21.md#français) · [Illustrations](docs/SCREENSHOTS.md) · [Feuille de route](ROADMAP.md)
+[Télécharger pour Windows](https://github.com/Azurik-Modding-Hub/Azurik-Level-Editor/releases/tag/v2.1.1) · [English guide](README.en.md) · [Niveaux et construction ISO](docs/LEVELS_V21.md#français) · [Illustrations](docs/SCREENSHOTS.md) · [Feuille de route](ROADMAP.md)
 
 ![Menus de l’éditeur version 2.0.0](docs/screenshots/v2-editor-menus.jpg)
+
+## Correctif 2.1.1
+
+- **Navigation séparée :** l’explorateur possède deux sections **Niveaux** et **Cinématiques**. Le dump européen étudié contient **24 niveaux et 9 cinématiques**, avec leurs propres sélecteurs et compteurs. Chaque section conserve sa dernière sélection ; l’ouverture ou la restauration d’une entrée sélectionne sa section. La gestion des niveaux et le choix du modèle source affichent les niveaux jouables.
+- **Éclairage de D2 :** les lumières directionnelles utilisent désormais la conversion native de matrice en quaternion, y compris sous des transformations à échelle non uniforme. Les surfaces incorrectement assombries sont corrigées. Le quaternion calculé n’est pas normalisé ; seule la direction finale de la lumière l’est, comme dans le shader du jeu.
+- **Vue intérieure de D2 :** la vue initiale s’ouvre dans l’enveloppe mauve de la cavité. D2 ne déclare pas de passe de ciel dédiée : ce ciel apparent fait partie du décor. L’enveloppe cubique extérieure verte d’origine est conservée et peut apparaître dans les vues extérieures.
+- **Changement de langue :** les noms des niveaux personnalisés restent inchangés dans le sélecteur et l’en-tête de la vue.
+
+![Vue intérieure de D2 et catalogue séparé dans la 2.1.1](docs/screenshots/d2-2.1.1.jpg)
+
+Cette capture montre le rendu des données source et la séparation du catalogue dans l’éditeur. Elle ne constitue pas une validation du jeu dans Xemu. [Légendes des illustrations](docs/SCREENSHOTS.md#version-211--d2-and-separate-catalogue).
 
 ## Nouveautés 2.1.0
 
@@ -41,9 +52,9 @@ Il s’agit **uniquement du cache Xbox** : **Clear Cache** dans xemu-dashboard o
 
 ## Ouvrir le logiciel
 
-1. Téléchargez **Azurik-Level-Studio-2.1.0-Windows-x64.zip** et extrayez-le.
+1. Téléchargez **Azurik-Level-Studio-2.1.1-Windows-x64.zip** et extrayez-le.
 2. Double-cliquez sur **Azurik Level Studio.exe**. L’exécutable inclut Python et les dépendances : aucune installation de Python n’est nécessaire.
-3. Cliquez sur **Importer un ISO**, choisissez votre ISO/XISO Xbox d’Azurik ou saisissez son chemin. Attendez l’import, puis choisissez le niveau.
+3. Cliquez sur **Importer un ISO**, choisissez votre ISO/XISO Xbox d’Azurik ou saisissez son chemin. Attendez l’import, puis choisissez **Niveaux** ou **Cinématiques** dans l’explorateur et sélectionnez une entrée.
 4. Sélectionnez un élément, déverrouillez-le si nécessaire, puis déplacez-le, tournez-le ou changez son échelle avec les outils ou les champs précis.
 5. **Enregistrer** conserve le projet. **Exporter le mod** crée les nouveaux XBR, le registre si nécessaire, un plan ISO et un rapport. **Niveaux → Construire une ISO du mod**, également proposé après l’export, crée un disque de test séparé depuis cet export et votre ISO source correspondante.
 
@@ -56,7 +67,7 @@ Sauvegardez une copie de votre projet avant une mise à jour. Les opérations d�
 ## Fonctionnalités
 
 - Décors, modèles placés, textures, matières et références en 3D ; montagnes et structures statiques ; ciel jour/nuit.
-- 33 niveaux détectés dans le dump européen étudié ; la disponibilité suit votre disque.
+- Catalogues distincts : 24 niveaux et 9 cinématiques dans le dump européen étudié ; la disponibilité et les compteurs suivent votre disque et votre projet.
 - Interface français/anglais sans rechargement du niveau.
 - Caméra orbitale ou libre, vues perspective/dessus/face/côté, cadrage et regard à 360° sur place.
 - Déplacement, rotation, échelle, champs précis, annuler/rétablir et restauration du placement source.
@@ -97,6 +108,8 @@ Le rendu utilise les données du jeu sans exécuter tout le moteur Xbox. Personn
 Pour la fenêtre native : Python 3.10+, `python -m pip install -r requirements-desktop.txt`, puis `python desktop.py`. Utilisez `--source` pour un dump extrait. Le navigateur reste disponible avec `python server.py --open` après installation de `requirements.txt`.
 
 Pour compiler : Windows x64, Python 3.11+ et **Build Windows.ps1**. Tests : `python -m pytest -q` ; Node.js est requis uniquement pour les tests de l’interface. Les fichiers du jeu ne sont pas inclus.
+
+Validation de la 2.1.1 le 10 octobre 2026 : **766 tests réussis, 3 ignorés** en 70,69 secondes. Ces contrôles automatisés ne certifient pas le fonctionnement du jeu dans Xemu.
 
 L’import, le remplacement et la duplication sont disponibles dans la 2.0.0 avec les limites d’export décrites dans [le guide V2](docs/EDITING_V2.md). Les ajouts arbitraires dans le jeu et les collisions restent dans [ROADMAP.md](ROADMAP.md).
 

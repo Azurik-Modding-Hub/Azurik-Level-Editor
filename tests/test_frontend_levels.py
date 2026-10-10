@@ -212,3 +212,24 @@ handler=async()=>({id:'job',status:'running',progress:1});const first=submit();a
 assert.equal(nodes().find(element=>element.tagName==='progress').value,.01);
 dialog.open=false;waiting.shift()();await first;
 """)
+
+
+def test_manager_and_templates_show_only_gameplay_but_validate_against_full_catalog():
+    run_node(SETUP + r"""
+catalog.levels.push({id:'movie_scene',name:'Cinematic unique title',family:'cinematic',canClone:false},
+ {id:'native_scene',name:'Another movie title',family:'air',nativeKey:'movies/scenes/intro'},
+ {id:'custom_cinematic_family',name:'Playable custom level',family:'cinematic',custom:true});
+catalog.levelManagement={deleted:[{id:'removed_level',name:'Restorable level'}],canUndo:true,canRedo:true};
+await manager.showManage();
+assert.doesNotMatch(text(),/Cinematic unique title|Another movie title/);
+assert.match(text(),/Playable custom level|Restorable level/);
+assert.equal(button('Annuler une opération de niveau').disabled,false);
+assert.equal(button('Restaurer le niveau supprimé').disabled,false);
+await manager.showCreate();
+assert.deepEqual(field('levelTemplate').children.map(option=>option.value),['w1','a5','custom_one','custom_cinematic_family']);
+field('newLevelId').value='movie_scene';field('newLevelName').value='My new level';
+await submit();assert.equal(calls.some(([path])=>path==='/api/levels/create'),false);
+assert.match(text(),/Cet identifiant de niveau existe déjà/);
+catalog.levels=catalog.levels.filter(level=>level.family==='cinematic'&&!level.custom);
+await manager.showManage();assert.equal(button('Créer un niveau depuis un modèle').disabled,true);
+""")

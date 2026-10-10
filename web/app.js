@@ -8,6 +8,7 @@ import { createSourceImport } from '/source-import.mjs';
 import { parseModelFiles, readPngFile } from '/asset-import.mjs';
 import { decodeSceneTransport } from '/scene-transport.mjs';
 import { createLevelManager } from '/levels.js';
+import { catalogSection, catalogEntries, catalogView } from '/level-catalog.mjs';
 
 const $ = id => document.getElementById(id);
 const number = value => formatNumber(Math.round(Number(value) || 0));
@@ -26,7 +27,7 @@ const rowsFromMatrix = matrix => { const e = matrix.elements; return [0, 1, 2, 3
 const eulerOrder = item => item?.previewEditable ? 'ZYX' : ['ZYX', 'XZY', 'YXZ', 'XYZ', 'ZXY', 'YZX'][nodeMap.get(item?.editBinding?.transformNode)?.rotationOrder || 0];
 
 const state = {
-  levels: [], level: null, data: null, catalog: null, items: new Map(), selected: null, sky: 'day', detail: 'close',
+  levels: [], level: null, data: null, catalog: null, catalogSection: 'levels', catalogLast: {}, items: new Map(), selected: null, sky: 'day', detail: 'close',
   filter: 'all', query: '', textures: true, grid: true, wire: false, collisions: false,
   helpers: true, models: true, fly: true, assetTab: 'textures', assetQuery: '', assetScope: 'level', assetPage: 0, archive: '', libraryData: null, libraryLoading: false, libraryError: '', libraryRequest: 0, nodeFilter: '', tool: 'translate', animation: true, animationFps: 12, exposure: 1, background: 'studio', pending: 0, unsaved: false,
   canUndo: false, canRedo: false, busy: false, loading: false, request: 0,
@@ -157,7 +158,10 @@ function updateActions() {
   $('exportBtn').title = state.pending ? 'Créer une copie des fichiers modifiés' : 'Aucune modification à exporter';
   $('undoBtn').disabled = !available || !state.canUndo;
   $('redoBtn').disabled = !available || !state.canRedo;
-  $('levelSelect').disabled = state.loading || state.busy || !state.levels.length;
+  $('levelSelect').disabled = state.loading || state.busy || state.importing || !catalogEntries(state.levels, state.catalogSection).length;
+  document.querySelectorAll('[data-catalog-section]').forEach(button => {
+    button.disabled = state.loading || state.busy || state.importing || !catalogEntries(state.levels, button.dataset.catalogSection).length;
+  });
   transform.enabled = available;
   const editable = available && isEditable(state.items.get(state.selected));
   ['posX', 'posY', 'posZ', 'resetPositionBtn'].forEach(id => { $(id).disabled = !editable; });
@@ -713,7 +717,10 @@ function buildScene(data, preserveCamera = false, restoreId = null) {
     const terrain = (data.meshes || []).find(item => item.visible !== false && /^LandShape$/i.test(item.name || ''));
     const staticTerrain = (data.meshes || []).some(item => (item.staticGeometry || item.sceneRole === 'static') && item.sceneRole !== 'sky' && state.items.get(item.id)?.object.visible);
     const start = (data.objects || []).find(item => item.kind === 'spawn' && /startspot/i.test(item.nodeName || item.name));
-    if (state.level === 'w1' && start) {
+    // D2's mauve cave walls enclose the playable area. An outside overview
+    // exposes its authored green underlay instead of the in-level backdrop.
+    const origin = state.levels.find(level => level.id === state.level)?.templateOrigin || state.level;
+    if (['w1', 'd2'].includes(origin) && start) {
       frameStart(start);
     } else if (staticTerrain && (state.level === 'w1' || !terrain)) {
       frameObject(null, true);
@@ -761,9 +768,7 @@ async function initialize() {
     const initial = state.levels.find(level => level.id === state.level || level.id === lastLevel) || state.levels.find(level => level.id === 'training_room') || state.levels[0];
     if (!initial) {
       state.loading = false;
-      $('headerLevel').textContent = translate('Importez votre jeu'); $('viewportLevel').textContent = 'AZURIK';
-      overlay('Importez votre jeu', 'Choisissez un ISO Xbox d’Azurik ou un dump compatible pour commencer.');
-      setStatus('Aucune source ouverte · import ISO disponible');
+      showEmptyCatalog();
       updateActions();
       return;
     }
@@ -779,11 +784,17 @@ async function initialize() {
 }
 
 function renderLevelCatalog(catalog) {
-  state.catalog = catalog; state.levels = catalog.levels || [];
+  state.catalog = catalog; state.levels = Array.isArray(catalog.levels) ? catalog.levels : [];
+  renderLevelOptions(state.level);
+}
+
+function renderLevelOptions(preferredId = null, section = state.catalogSection) {
+  const view = catalogView(state.levels, section, preferredId);
+  state.catalogSection = view.section;
   const select = $('levelSelect'); select.replaceChildren();
   const groups = new Map();
-  for (const level of state.levels) {
-    const label = groupLabel(level.group || level.family);
+  for (const level of view.entries) {
+    const label = level.custom && level.family === 'cinematic' ? translate('Niveaux personnalisés') : groupLabel(level.group || level.family);
     let group = groups.get(label);
     if (!group) { group = document.createElement('optgroup'); group.label = label; select.append(group); groups.set(label, group); }
     const option = document.createElement('option'); option.value = level.id;
@@ -791,7 +802,39 @@ function renderLevelCatalog(catalog) {
     if (level.custom) option.setAttribute('data-i18n-ignore', '');
     group.append(option);
   }
-  $('levelCount').textContent = `${state.levels.length} ${translate('NIVEAUX')}`;
+  if (!view.entries.length) {
+    const option = document.createElement('option'); option.value = '';
+    option.textContent = translate(view.section === 'cinematics' ? 'Aucune cinématique disponible.' : 'Aucun niveau disponible.');
+    select.append(option);
+  }
+  select.value = view.selectedId || '';
+  $('levelSelectLabel').textContent = translate(view.section === 'cinematics' ? 'Cinématique active' : 'Niveau actif');
+  $('levelCount').textContent = `${number(view.entries.length)} ${translate(view.section === 'cinematics' ? 'CINÉMATIQUES' : 'NIVEAUX')}`;
+  document.querySelectorAll('[data-catalog-section]').forEach(button => {
+    const active = button.dataset.catalogSection === view.section;
+    button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
+    button.querySelector('.catalog-count').textContent = number(view.counts[button.dataset.catalogSection]);
+  });
+  return view;
+}
+
+async function switchCatalogSection(section) {
+  if (state.loading || state.busy || state.importing || section === state.catalogSection) return;
+  const entries = catalogEntries(state.levels, section);
+  if (!entries.length) return;
+  const target = entries.find(level => level.id === state.catalogLast[section]) || entries[0];
+  renderLevelOptions(target.id, section);
+  await loadLevel(target.id);
+}
+
+function showEmptyCatalog() {
+  state.level = null; state.data = null; state.pending = 0; cleanScene();
+  renderHierarchy(); renderInspector(); renderSummary(); renderCapabilities(); renderAssets(); updateVisibleStats();
+  $('sceneCount').textContent = '0'; $('sourceSize').textContent = size(0);
+  $('levelGroup').textContent = translate('Données originales du jeu');
+  $('headerLevel').textContent = translate('Importez votre jeu'); $('viewportLevel').textContent = 'AZURIK';
+  overlay('Importez votre jeu', 'Choisissez un ISO Xbox d’Azurik ou un dump compatible pour commencer.');
+  setStatus('Aucune source ouverte · import ISO disponible');
 }
 
 async function refreshLevelCatalog(result = {}) {
@@ -799,14 +842,17 @@ async function refreshLevelCatalog(result = {}) {
   const target = state.levels.find(level => level.id === result.activeLevel)
     || state.levels.find(level => level.id === state.level) || state.levels[0];
   if (target) await loadLevel(target.id);
+  else showEmptyCatalog();
   state.unsaved = true; updateActions();
 }
 
 async function loadLevel(id, options = {}) {
+  const level = state.levels.find(entry => entry.id === id);
+  if (!level) return;
   const request = ++state.request;
   state.loading = true;
-  const level = state.levels.find(entry => entry.id === id);
-  const name = translateLevelName(level?.name || level?.label || id);
+  renderLevelOptions(id);
+  const name = level.custom ? level.name : translateLevelName(level.name || level.label || id);
   overlay(`Ouverture · ${name}`, 'Décodage de la géométrie, des collisions et des assets du jeu…');
   setStatus(`Lecture du niveau ${name}…`);
   updateActions();
@@ -814,6 +860,7 @@ async function loadLevel(id, options = {}) {
     const data = await api(`/api/scene?level=${encodeURIComponent(id)}`);
     if (request !== state.request) return;
     state.level = id;
+    state.catalogLast[catalogSection(level)] = id;
     $('levelSelect').value = id;
     $('headerLevel').textContent = name;
     $('viewportLevel').textContent = `AZURIK / ${name.toUpperCase()}`;
@@ -1761,7 +1808,7 @@ async function assetMutation(action, body, restoreId = state.selected) {
 }
 
 function showAssetResult(result, title) {
-  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.1.0');
+  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.1.1');
   const status = document.createElement('div'); status.className = `asset-import-result${result.gameExportable ? '' : ' preview-only'}`;
   status.textContent = translate(result.gameExportable ? 'Modification compatible avec l’export dans le jeu.' : 'Ajout conservé dans le projet et l’export d’assets. Aperçu uniquement dans le niveau ; non intégré au jeu.');
   body.append(status);
@@ -1788,7 +1835,7 @@ async function deleteAddition() {
 
 function showResetLevel() {
   if (!state.level || state.loading || state.busy) return;
-  const body = openDialog('Restaurer le niveau d’origine', 'AZURIK LEVEL STUDIO 2.1.0');
+  const body = openDialog('Restaurer le niveau d’origine', 'AZURIK LEVEL STUDIO 2.1.1');
   const paragraph = document.createElement('p'); paragraph.textContent = 'Rétablir les positions, transformations, modèles et textures du niveau actif depuis le dump source, puis supprimer les ajouts du niveau. Les autres niveaux sont conservés. Ctrl Z permet de récupérer vos modifications.';
   const actions = document.createElement('div'); actions.className = 'asset-import-actions';
   const cancel = document.createElement('button'); cancel.className = 'button secondary'; cancel.textContent = 'Annuler'; cancel.addEventListener('click', () => $('infoDialog').close());
@@ -1807,7 +1854,7 @@ function showAssetImport(kind, targetId = null) {
   if (!state.level || state.loading || state.busy) return;
   const replacing = targetId !== null;
   const title = kind === 'model' ? replacing ? 'Remplacer le modèle sélectionné' : 'Importer un modèle' : replacing ? 'Remplacer une texture du niveau' : 'Importer une texture PNG';
-  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.1.0');
+  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.1.1');
   const form = document.createElement('form'); form.className = 'asset-import-form';
   const note = document.createElement('p'); note.className = 'dialog-note';
   note.textContent = kind === 'model' ? 'OBJ, glTF 2.0, GLB ou JSON · 12 Mo maximum. Pour un glTF, sélectionnez aussi son fichier .bin. La géométrie est assemblée ; choisissez la texture ci-dessous. Les ajouts et duplications restent des aperçus. Un remplacement de même topologie peut être exporté dans le jeu et affecter ses autres instances.' : 'PNG · 8 Mo maximum. Un remplacement compatible conserve les dimensions et le format Xbox du jeu. Une texture partagée est remplacée dans toutes ses utilisations. Les autres imports restent dans le projet et l’export d’assets.';
@@ -1982,6 +2029,7 @@ function animate() {
 animate();
 
 $('levelSelect').addEventListener('change', event => loadLevel(event.target.value));
+document.querySelectorAll('[data-catalog-section]').forEach(button => button.addEventListener('click', () => switchCatalogSection(button.dataset.catalogSection)));
 $('sceneSearch').addEventListener('input', event => { state.query = event.target.value.trim().toLowerCase(); renderHierarchy(); });
 $('assetSearch').addEventListener('input', event => { state.assetQuery = event.target.value.trim().toLowerCase(); state.assetPage = 0; renderAssets(); $('assetContent').scrollTop = 0; });
 $('assetScope').addEventListener('change', event => setAssetScope(event.target.value));
@@ -2008,7 +2056,7 @@ $('animationBtn').addEventListener('click', () => toggle('animation', 'animation
 $('animationFps').addEventListener('change', event => { state.animationFps = THREE.MathUtils.clamp(Number(event.target.value) || 12, 1, 60); event.target.value = state.animationFps; setStatus(`Cadence d’aperçu des textures : ${state.animationFps} images / seconde`); });
 document.querySelectorAll('[data-filter]').forEach(button => button.addEventListener('click', () => { state.filter = button.dataset.filter; document.querySelectorAll('[data-filter]').forEach(item => item.classList.toggle('active', item === button)); renderHierarchy(); }));
 document.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => { setAssetTab(button.dataset.tab); $('assetContent').scrollTop = 0; }));
-$('retryBtn').addEventListener('click', () => state.levels.length ? loadLevel($('levelSelect').value || state.levels[0].id) : initialize());
+$('retryBtn').addEventListener('click', () => state.levels.length ? loadLevel($('levelSelect').value || catalogEntries(state.levels, state.catalogSection)[0]?.id || state.levels[0].id) : initialize());
 $('frameBtn').addEventListener('click', () => frameObject(state.items.get(state.selected)?.object));
 $('frameAllBtn').addEventListener('click', () => frameObject());
 $('flyBtn').addEventListener('click', () => setFly(!state.fly));
@@ -2094,7 +2142,7 @@ window.addEventListener('beforeunload', event => { if (state.unsaved || state.im
 const sourceImport = createSourceImport({ api, openDialog, translate, formatNumber, toast,
   setBusy: value => { state.importing = value; updateActions(); },
   onSourceOpened: async () => {
-    ++state.request; state.level = null; state.data = null; state.catalog = null; state.exportDirectory = null; state.unsaved = false; state.pending = 0; state.canUndo = false; state.canRedo = false;
+    ++state.request; state.level = null; state.data = null; state.catalog = null; state.catalogSection = 'levels'; state.catalogLast = {}; state.exportDirectory = null; state.unsaved = false; state.pending = 0; state.canUndo = false; state.canRedo = false;
     characterCatalog = []; libraryArchives = null; libraryCache.clear(); libraryController?.abort();
     state.libraryData = null; state.libraryError = ''; state.archive = ''; state.assetScope = 'level';
     $('assetScope').value = 'level'; freeNavigation.reset(); cleanScene(); await initialize();
@@ -2128,17 +2176,14 @@ $('unlockAllBtn').addEventListener('click', () => changeLock(false, true));
 $('flySpeedSelect').addEventListener('change', () => { freeNavigation.reset(); if (state.fly) renderer.domElement.focus({ preventScroll: true }); });
 onLanguageChange(() => {
   freeNavigation.reset(); updateNavigationHint();
-  $('levelSelect').querySelectorAll('option').forEach(option => {
-    const level = state.levels.find(entry => entry.id === option.value);
-    if (level) option.textContent = translateLevelName(level.name || level.id);
-  });
+  renderLevelOptions($('levelSelect').value || state.level);
   if (state.level) {
     const level = state.levels.find(entry => entry.id === state.level);
-    const name = translateLevelName(level?.name || state.level);
+    const name = level?.custom ? level.name : translateLevelName(level?.name || state.level);
     $('headerLevel').textContent = name; $('viewportLevel').textContent = `AZURIK / ${name.toUpperCase()}`;
     $('levelGroup').textContent = groupLabel(level?.group || level?.family);
   }
-  if (state.data) { renderHierarchy(); renderInspector(); renderSummary(); renderCapabilities(); renderAssets(); $('sourceSize').textContent = size(state.data.stats?.sourceBytes || 0); const name = translateLevelName(state.levels.find(level => level.id === state.level)?.name || state.level); setStatus(`${name} ouvert · ${number(state.data.meshes?.length || 0)} géométries · ${number(state.data.objects?.length || 0)} repères d’entités`); }
+  if (state.data) { renderHierarchy(); renderInspector(); renderSummary(); renderCapabilities(); renderAssets(); $('sourceSize').textContent = size(state.data.stats?.sourceBytes || 0); const level = state.levels.find(level => level.id === state.level); const name = level?.custom ? level.name : translateLevelName(level?.name || state.level); setStatus(`${name} ouvert · ${number(state.data.meshes?.length || 0)} géométries · ${number(state.data.objects?.length || 0)} repères d’entités`); }
   updateActions();
 });
 updateNavigationHint();

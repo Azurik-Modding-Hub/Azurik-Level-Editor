@@ -1,6 +1,10 @@
-# Level management and mod ISO construction in 2.1.0
+# Level management and mod ISO construction in 2.1.x
 
 [English editor guide](../README.md) · [Guide français](../README.fr.md)
+
+## Levels and cinematics
+
+Since 2.1.1, choose **Levels** or **Cinematics** in the Explorer before selecting an entry. Their selectors, counts and last selections are separate. The inspected European dump has 24 levels and 9 cinematics; your source and custom project entries determine the displayed counts. Level management and source-template selection show gameplay levels. Custom gameplay clones remain in Levels even when their chosen display family is cinematic.
 
 ## What a new level contains
 
@@ -56,6 +60,10 @@ EDIT : You need to clear the cache for the changes you make to take effect ! Don
 Clear only the Xbox game cache partitions, keep the virtual hard drive and E partition containing saves, then restart with the modified ISO and load an ordinary game save. An older emulator snapshot can retain the previously loaded world. [Cache instructions](GAME_CACHE.md).
 
 ## Français
+
+### Niveaux et cinématiques
+
+Depuis la 2.1.1, choisissez **Niveaux** ou **Cinématiques** dans l’explorateur avant de sélectionner une entrée. Sélecteurs, compteurs et dernières sélections sont séparés. Le dump européen étudié comporte 24 niveaux et 9 cinématiques ; les fichiers source et les niveaux personnalisés du projet déterminent les compteurs affichés. La gestion des niveaux et le choix du modèle source affichent les niveaux jouables. Un clone jouable reste dans Niveaux, même si sa famille d’affichage choisie est cinématique.
 
 ### Créer un niveau depuis un modèle
 

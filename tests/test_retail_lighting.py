@@ -118,8 +118,43 @@ def test_sphere_bounds_and_point_strength_affect_selection_without_point_renderi
 
 def test_runtime_direction_sign_and_uniform_scale_are_verified():
     assert _direction([2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1]) == [0, 0, -1]
+    assert _direction([1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]) == [0, 0, -1]
+
+
+def test_sheared_d2_direction_matches_executed_retail_quaternion_path():
+    # Expected ray comes from executing A07A0 -> CED30 in the European XBE,
+    # not from normalizing a guessed matrix column or quaternion.
+    matrix = [1151.7620485963537, -20.716514174414357, 633.1613936657861, 152.8112487792969,
+              58.412719563853045, 1279.3058905930639, -81.1156320545903, -22.099716186523438,
+              -561.5082274421115, 90.59037594162973, 1290.2982428122511, 465.5301818847656,
+              0., 0., 0., 1.]
+    original = matrix[:]
+    ray = _direction(matrix)
+    assert ray == pytest.approx([-.46675238013267517, .05956864729523659, -.8865231275558472], abs=1e-6)
+    assert abs(math.hypot(*ray) - 1) > 1e-4  # Native output is not normalized here.
+    assert matrix == original
+
+
+@pytest.mark.parametrize("axis,expected", [(0, [0, 0, 1]), (1, [0, 0, 1]), (2, [0, 0, -1])])
+def test_negative_trace_quaternion_branches_retain_direction(axis, expected):
+    matrix = [2., 0, 0, 0, 0, 2., 0, 0, 0, 0, 2., 0, 0, 0, 0, 1]
+    for other in range(3):
+        if other != axis:
+            matrix[other * 5] *= -1
+    assert _direction(matrix) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("damage", ["zero_first_column", "nan", "short"])
+def test_invalid_direction_transform_is_rejected_without_changing_source(damage):
+    matrix = [1., 0, 0, 0, 0, 1., 0, 0, 0, 0, 1., 0, 0, 0, 0, 1.]
+    if damage == "zero_first_column":
+        matrix[0] = 0
+    elif damage == "nan":
+        matrix[5] = math.nan
+    else:
+        matrix.pop()
     with pytest.raises(ValueError):
-        _direction([1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+        _direction(matrix)
 
 
 def test_scene_products_are_per_instance_and_do_not_recolor_or_mutate_source_normals():

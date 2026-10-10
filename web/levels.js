@@ -1,4 +1,5 @@
 /** Project level management. The backend owns native registration and safe ISO writes. */
+import { catalogEntries } from './level-catalog.mjs';
 export const LEVEL_FAMILIES = [
   ['air', 'Air'], ['water', 'Eau'], ['earth', 'Terre'], ['fire', 'Feu'],
   ['death', 'Mort'], ['life', 'Vie'], ['perathia', 'Perathia'], ['cinematic', 'Cinématique'],
@@ -106,7 +107,7 @@ export function createLevelManager({ api, openDialog, closeDialog, toast, getCon
     view.body.append(view.error);
     const catalog = await catalogFor(view);
     if (!catalog) return;
-    const templates = catalog.levels.filter(level => level.canClone !== false);
+    const templates = catalogEntries(catalog.levels, 'levels').filter(level => level.canClone !== false);
     if (!templates.length) {
       view.body.append(view.node('p', 'Importez votre jeu pour créer un niveau.'), view.cancel); return;
     }
@@ -180,20 +181,21 @@ export function createLevelManager({ api, openDialog, closeDialog, toast, getCon
     view.body.append(view.node('p', 'Créez un niveau depuis un modèle d’origine, supprimez-le du mod ou restaurez un niveau supprimé. Ces opérations font partie de l’historique du projet.', 'dialog-note'), view.error);
     const catalog = await catalogFor(view);
     if (!catalog) return;
+    const playable = catalogEntries(catalog.levels, 'levels');
     const actions = view.node('div', '', 'asset-import-actions');
     const history = async action => {
       const result = await mutate(view, action, {}, action === 'undo' ? 'Opération sur les niveaux annulée.' : 'Opération sur les niveaux rétablie.', true);
       if (result && view.active()) await showManage();
     };
-    actions.append(view.button('Créer un niveau depuis un modèle', showCreate, true, !catalog.levels.length),
+    actions.append(view.button('Créer un niveau depuis un modèle', showCreate, true, !playable.some(level => level.canClone !== false)),
       view.button('Annuler une opération de niveau', () => history('undo'), false, !catalog.levelManagement.canUndo),
       view.button('Rétablir une opération de niveau', () => history('redo'), false, !catalog.levelManagement.canRedo));
     view.body.append(actions);
     const list = view.node('div', '', 'iso-source-list');
-    for (const level of catalog.levels) {
+    for (const level of playable) {
       const row = view.node('div');
       row.append(view.node('p', `${level.name || level.label || level.id} · ${level.id}`, '', true),
-        view.button('Supprimer du mod', () => showDelete(level.id), false, catalog.levels.length < 2 || level.technical || level.canClone === false));
+        view.button('Supprimer du mod', () => showDelete(level.id), false, playable.length < 2 || level.technical || level.canClone === false));
       list.append(row);
     }
     view.body.append(list, view.node('h3', 'Niveaux supprimés'));

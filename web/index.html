@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#111820">
-  <title>Azurik · Level Studio 2.1.0</title>
+  <title>Azurik · Level Studio 2.1.1</title>
   <link rel="stylesheet" href="/style.css">
   <link rel="icon" href="/assets/studio.ico">
   <script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
@@ -48,7 +48,7 @@
   </svg>
 
   <header class="topbar">
-    <div class="brand"><div class="brand-mark"><span></span><span></span><span></span></div><div><strong>AZURIK</strong><span>LEVEL STUDIO</span></div><span class="version">2.1.0 · LOCAL</span></div>
+    <div class="brand"><div class="brand-mark"><span></span><span></span><span></span></div><div><strong>AZURIK</strong><span>LEVEL STUDIO</span></div><span class="version">2.1.1 · LOCAL</span></div>
     <div class="project-title"><span class="project-dot"></span><span>Rise of Perathia</span><span class="project-separator">/</span><strong id="headerLevel">Chargement du projet…</strong><span id="dirtyDot" class="dirty-dot" hidden></span></div>
     <div class="header-actions"><label class="language-control"><span class="sr-only">Langue de l’interface</span><select id="languageSelect" class="compact-select" aria-label="Langue de l’interface"><option value="fr" lang="fr" translate="no">Français</option><option value="en" lang="en" translate="no">English</option></select></label><button id="importIsoBtn" class="button secondary import-button" title="Importer un fichier ISO Xbox"><svg><use href="#i-folder"/></svg><span>Importer un ISO</span></button><input id="isoFileInput" type="file" accept=".iso,.xiso" hidden aria-label="Importer un fichier ISO Xbox"><button id="helpBtn" class="icon-button" title="Commandes et raccourcis" aria-label="Commandes et raccourcis"><svg><use href="#i-help"/></svg></button><button id="saveBtn" class="button secondary" disabled><svg><use href="#i-save"/></svg><span>Enregistrer</span></button><button id="exportBtn" class="button primary" disabled><svg><use href="#i-export"/></svg><span>Exporter le mod</span></button></div>
   </header>
@@ -87,13 +87,17 @@
     </div></details>
     <button data-action="help" class="menu-help">Aide et raccourcis</button>
     <span id="navigationMode" class="navigation-mode">Caméra libre</span>
-    <span class="menu-version">2.1.0</span>
+    <span class="menu-version">2.1.1</span>
   </nav>
 
   <div class="workspace">
     <aside class="panel hierarchy-panel">
       <div class="panel-heading"><span class="eyebrow">EXPLORATEUR</span><span class="subtle-number" id="levelCount">—</span></div>
-      <label class="field-label" for="levelSelect">Niveau actif</label>
+      <div id="catalogSections" class="catalog-sections" role="group" aria-label="Type de scène">
+        <button type="button" data-catalog-section="levels" class="active" aria-pressed="true" aria-controls="levelSelect" disabled><span>Niveaux</span><span class="catalog-count" data-i18n-ignore>0</span></button>
+        <button type="button" data-catalog-section="cinematics" aria-pressed="false" aria-controls="levelSelect" disabled><span>Cinématiques</span><span class="catalog-count" data-i18n-ignore>0</span></button>
+      </div>
+      <label class="field-label" id="levelSelectLabel" for="levelSelect">Niveau actif</label>
       <div class="select-wrap"><svg><use href="#i-folder"/></svg><select id="levelSelect" disabled><option>Lecture du dump…</option></select></div>
       <div class="level-description"><span class="live-dot"></span><span id="levelGroup">Données originales du jeu</span></div>
       <div class="panel-divider"></div>

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.1 — 2026-10-10
+
+- Separate the Explorer into Levels and Cinematics, with independent selectors, counts and remembered selections. The inspected European dump contains 24 levels and 9 cinematics; counts follow the opened source and project.
+- Keep cinematics out of the level-management list and source-template picker while retaining the complete catalogue for identifier validation and history. Preserve custom level names when switching language.
+- Correct native directional-light orientation under non-uniform scene transforms using the game's matrix-to-quaternion conversion. Keep the quaternion unnormalised and normalise only the final light direction in the shader. This repairs the incorrectly dark lighting in D2.
+- Open D2 inside its mauve cavity shell. D2 has no dedicated sky pass; the apparent sky belongs to the level scenery. Preserve the source green outer cube enclosure visible in exterior views.
+- Include bilingual guidance and an editor screenshot; these rendering corrections do not modify the source game archives.
+- Automated validation: 766 passed, 3 skipped in 70.69 seconds. Xemu gameplay validation remains separate.
+
 ## 2.1.0 — 2026-10-10
 
 - Add a bilingual Levels menu: clone a clean native source template, remove a level from the mod, and restore removed levels.

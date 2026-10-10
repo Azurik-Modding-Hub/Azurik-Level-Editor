@@ -247,6 +247,14 @@ export const messages = Object.freeze({
   'Domaine de l’Eau': 'Water Domain',
   'Domaine de la Mort': 'Death Domain',
   'Cinématiques': 'Cinematics',
+  'NIVEAUX': 'LEVELS',
+  'CINÉMATIQUES': 'CINEMATICS',
+  'Type de scène': 'Scene type',
+  'Niveau actif': 'Active level',
+  'Cinématique active': 'Active cinematic',
+  'Aucun niveau disponible.': 'No levels available.',
+  'Aucune cinématique disponible.': 'No cinematics available.',
+  'Niveaux personnalisés': 'Custom levels',
   'Autres niveaux': 'Other levels',
   'Niveaux du jeu': 'Game levels',
   'Créer une copie des fichiers modifiés': 'Create a copy of modified files',
@@ -572,6 +580,7 @@ const frenchKeys = Object.freeze({
 // paths pass through unchanged. The reverse patterns restore French on switch.
 const templates = [
   ['{1} NIVEAUX', '{1} LEVELS'],
+  ['{1} CINÉMATIQUES', '{1} CINEMATICS'],
   ['Sélectionnez aussi le tampon du modèle : {1}', 'Also select the model buffer: {1}'],
   ['{1} : données invalides ou trop volumineuses.', '{1}: invalid or oversized data.'],
   ['{1} modifications du jeu · {2} modifications d’aperçu', '{1} game changes · {2} preview changes'],

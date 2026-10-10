@@ -1,5 +1,17 @@
 # Screenshots — Azurik Level Studio
 
+## Version 2.1.1 — D2 and separate catalogue
+
+Captured in the 2.1.1 editor while inspecting D2. The Explorer shows separate Levels and Cinematics sections: the inspected European dump has 24 levels and 9 cinematics. Project-created entries change these counts.
+
+D2 opens inside the mauve cavity shell, which is level scenery. Its native level record does not declare a dedicated sky pass. Directional lights now use the game's matrix-to-quaternion conversion under non-uniform scene transforms: the quaternion is not normalised, and only the final shader light direction is normalised. The source green outer cube enclosure is preserved and may appear in exterior views.
+
+This capture shows decoded game data in the editor, not a modified disc running in Xemu. It does not establish pixel-identical rendering or validate gameplay.
+
+![D2 mauve cavity interior and separate catalogue](screenshots/d2-2.1.1.jpg)
+
+**Français :** capture de D2 dans l’éditeur 2.1.1, avec sections Niveaux et Cinématiques séparées. Le dump européen étudié contient 24 niveaux et 9 cinématiques ; les ajouts du projet modifient ces compteurs. La vue initiale se trouve dans l’enveloppe mauve de la cavité, qui appartient au décor ; D2 ne déclare pas de passe de ciel dédiée. Les lumières utilisent la conversion native de matrice en quaternion sous une échelle non uniforme : le quaternion n’est pas normalisé, seule la direction finale dans le shader l’est. L’enveloppe cubique extérieure verte source est conservée. Cette illustration ne montre pas une ISO testée dans Xemu.
+
 ## Version 2.0.0 — menus and model import
 
 Captured in the 2.0.0 editor during interface validation. The Training room does not contain a sky resource. These show the application interface, not gameplay validation.
