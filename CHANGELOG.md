@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1 — 2026-10-10
+
+- Cache unchanged instance lighting, reflection transforms and transparent bounds without reducing scene detail or textures.
+- A local A5 benchmark reduces material-update CPU time from 4.19 to 1.16 ms per frame (about 72%); this does not measure GPU FPS.
+- Distinguish stationary texture-preview cadence from FPS during camera movement.
+
 ## 2.0.0 — 2026-10-09
 
 - Free camera by default, reliable viewport focus and fixed-position looking.

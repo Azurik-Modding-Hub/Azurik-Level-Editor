@@ -1,10 +1,14 @@
-# Azurik Level Studio 2.0.0
+# Azurik Level Studio 2.0.1
 
-**Version 2.0.0** de l’éditeur de niveaux d’**Azurik: Rise of Perathia**, pour votre propre copie du jeu Xbox.
+**Version 2.0.1** de l’éditeur de niveaux d’**Azurik: Rise of Perathia**, pour votre propre copie du jeu Xbox.
 
-[Télécharger pour Windows](https://github.com/AzurikPerathia/Azurik-Level-Editor/releases/tag/v2.0.0) · [English guide](README.en.md) · [Illustrations](docs/SCREENSHOTS.md) · [Prochaine version](ROADMAP.md)
+[Télécharger pour Windows](https://github.com/AzurikPerathia/Azurik-Level-Editor/releases/tag/v2.0.1) · [English guide](README.en.md) · [Illustrations](docs/SCREENSHOTS.md) · [Prochaine version](ROADMAP.md)
 
 ![Menus de l’éditeur version 2.0.0](docs/screenshots/v2-editor-menus.jpg)
+
+## Correctif 2.0.1
+
+Les calculs d’éclairage, de réflexion et de limites des objets transparents sont réutilisés quand ils restent identiques, sans réduire le détail ni les textures. Sur un test local de mise à jour des matières d’A5, le temps processeur passe de **4,19 à 1,16 ms par image** (environ 72 % de moins) ; cette mesure ne représente pas les FPS du GPU. La cadence des textures dans une vue immobile est désormais distinguée des FPS pendant le déplacement. Les projets et les données du jeu sont conservés.
 
 ## Nouveautés 2.0.0
 
@@ -27,7 +31,7 @@ Il s’agit **uniquement du cache Xbox** : **Clear Cache** dans xemu-dashboard o
 
 ## Ouvrir le logiciel
 
-1. Téléchargez **Azurik-Level-Studio-2.0.0-Windows-x64.zip** et extrayez-le.
+1. Téléchargez **Azurik-Level-Studio-2.0.1-Windows-x64.zip** et extrayez-le.
 2. Double-cliquez sur **Azurik Level Studio.exe**. L’exécutable inclut Python et les dépendances : aucune installation de Python n’est nécessaire.
 3. Cliquez sur **Importer un ISO**, choisissez votre ISO/XISO Xbox d’Azurik ou saisissez son chemin. Attendez l’import, puis choisissez le niveau.
 4. Sélectionnez un élément, déverrouillez-le si nécessaire, puis déplacez-le, tournez-le ou changez son échelle avec les outils ou les champs précis.

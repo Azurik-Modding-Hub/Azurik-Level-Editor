@@ -83,6 +83,7 @@ const animationResources = new Map();
 let nodeMap = new Map();
 let nodeAncestors = new Map();
 let cameraFacingItems = [];
+let cameraFacingQuaternion = null;
 const previewExposure = { value: 1 };
 const transformParent = new THREE.Object3D();
 transformParent.matrixAutoUpdate = false;
@@ -102,6 +103,7 @@ let pointerOrigin = null;
 let toastTimeout = null;
 let pendingMutation = Promise.resolve();
 let fpsFrames = 0;
+let fpsMotionFrames = 0;
 let fpsStart = performance.now();
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -208,6 +210,7 @@ function cleanScene(reuseTextures = false) {
   transformPreview = null;
   state.items.clear();
   cameraFacingItems = [];
+  cameraFacingQuaternion = null;
   state.selected = null;
   $('selectionLabel').hidden = true;
 }
@@ -428,21 +431,52 @@ function retailSourceMatrix(source, object) {
   return Math.abs(matrix.determinant()) < 1e-12 ? null : matrix;
 }
 
+function retailSourceTransform(material, source, object) {
+  if (!object) return null;
+  const caches = material.userData.retailSourceTransformCaches ||= {
+    lastObject: null, lastTransform: null, instances: new WeakMap(),
+  };
+  let cache = caches.lastObject === object ? caches.lastTransform : caches.instances.get(object);
+  if (!cache) {
+    cache = { matrix: new THREE.Matrix4(), world: new THREE.Matrix4(),
+      inverse: new THREE.Matrix4(), version: 0, valid: false };
+    caches.instances.set(object, cache);
+  }
+  caches.lastObject = object; caches.lastTransform = cache;
+  // A material can be shared by several instances. Compare both the instance
+  // and its complete world matrix, including shear and mirrored live edits.
+  if (!cache.version || !cache.matrix.equals(object.matrixWorld)) {
+    cache.matrix.copy(object.matrixWorld);
+    const world = retailSourceMatrix(source, object);
+    cache.valid = !!world;
+    if (world) { cache.world.copy(world); cache.inverse.copy(world).invert(); }
+    cache.version++;
+  }
+  return cache.valid ? cache : null;
+}
+
 function updateRetailReflection(material, source, object, camera) {
   if (object) material.userData.retailReflectionObject = object;
   if (camera) material.userData.retailReflectionCamera = camera;
   const sets = material.userData.retailReflectionUniforms;
   if (!sets || !object || !camera) return;
-  const world = retailSourceMatrix(source, object);
-  if (!world) return;
-  const inverse = world.clone().invert();
-  const eye = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld).applyMatrix4(inverse);
-  const viewWorld = camera.matrixWorldInverse.clone().multiply(world);
+  const transform = retailSourceTransform(material, source, object);
+  if (!transform) return;
+  const cache = material.userData.retailReflectionCache ||= {
+    source: null, worldVersion: -1, uniformCount: -1, camera: new THREE.Matrix4(), view: new THREE.Matrix4(),
+    eye: new THREE.Vector3(), viewWorld: new THREE.Matrix4(),
+  };
+  if (cache.source === transform && cache.worldVersion === transform.version && cache.uniformCount === sets.size &&
+      cache.camera.equals(camera.matrixWorld) && cache.view.equals(camera.matrixWorldInverse)) return;
+  cache.source = transform; cache.worldVersion = transform.version; cache.uniformCount = sets.size;
+  cache.camera.copy(camera.matrixWorld); cache.view.copy(camera.matrixWorldInverse);
+  cache.eye.setFromMatrixPosition(camera.matrixWorld).applyMatrix4(transform.inverse);
+  cache.viewWorld.copy(camera.matrixWorldInverse).multiply(transform.world);
   sets.forEach(uniforms => {
-    uniforms.retailSourceWorld.value.copy(world);
-    uniforms.retailSourceInverse.value.copy(inverse);
-    uniforms.retailEyeLocal.value.copy(eye);
-    uniforms.retailReflectionView.value.copy(viewWorld);
+    uniforms.retailSourceWorld.value.copy(transform.world);
+    uniforms.retailSourceInverse.value.copy(transform.inverse);
+    uniforms.retailEyeLocal.value.copy(cache.eye);
+    uniforms.retailReflectionView.value.copy(cache.viewWorld);
   });
 }
 
@@ -471,18 +505,20 @@ function installRetailLighting(shader, lighting, source, material) {
 function updateRetailLighting(material, lighting, source, object) {
   if (object) material.userData.retailLightingObject = object;
   const sets = material.userData.retailLightingUniforms;
-  if (!sets || !object) return;
+  if (!sets || !object || !lighting.directionals.length) return;
   // The editor's geometry is baked into world coordinates and recentered.
   // Recover its current source-world matrix, including live gizmo edits
   // and camera-facing parents, without modifying the dump's normals.
-  const worldMatrix = retailSourceMatrix(source, object);
-  if (!worldMatrix) return;
-  const inverse = worldMatrix.invert();
+  const transform = retailSourceTransform(material, source, object);
+  if (!transform) return;
+  const previous = material.userData.retailLightingCache;
+  if (previous?.source === transform && previous.worldVersion === transform.version && previous.uniformCount === sets.size) return;
   sets.forEach(uniforms => lighting.directionals.forEach((light, index) => {
     // 9B052..9B148 transforms the light ray by inverse world, normalizes
     // it and negates it; the local vertex normal itself is not normalized.
-    uniforms.retailLightDirections.value[index].set(...light.direction).transformDirection(inverse).negate();
+    uniforms.retailLightDirections.value[index].set(...light.direction).transformDirection(transform.inverse).negate();
   }));
+  material.userData.retailLightingCache = { source: transform, worldVersion: transform.version, uniformCount: sets.size };
 }
 
 function retailCullSide(flags, reflected = false) {
@@ -863,10 +899,20 @@ function retailRenderDistance(object, renderCamera) {
   // C1E17..C1E88: distance from the world AABB centre to the camera.
   // C1FAC adds MeshOffset. The channel changes sorting, never geometry.
   const bounds = object.geometry?.boundingBox;
-  const centre = bounds ? bounds.clone().applyMatrix4(object.matrixWorld).getCenter(new THREE.Vector3()) : object.getWorldPosition(new THREE.Vector3());
+  const cache = object.userData.retailSortBounds ||= {
+    geometry: null, matrix: new THREE.Matrix4(), source: new THREE.Box3(),
+    world: new THREE.Box3(), centre: new THREE.Vector3(), valid: false,
+  };
+  if (!cache.valid || cache.geometry !== object.geometry || !cache.matrix.equals(object.matrixWorld) ||
+      cache.hasBounds !== !!bounds || (bounds && !cache.source.equals(bounds))) {
+    cache.geometry = object.geometry; cache.matrix.copy(object.matrixWorld); cache.hasBounds = !!bounds;
+    if (bounds) { cache.source.copy(bounds); cache.world.copy(bounds).applyMatrix4(object.matrixWorld).getCenter(cache.centre); }
+    else object.getWorldPosition(cache.centre);
+    cache.valid = true;
+  }
   const platform = object.userData.source?.platformRender;
   const bias = platform?.sourceVerified && Number.isFinite(platform.meshOffset) ? platform.meshOffset : 0;
-  return centre.distanceTo(renderCamera.position) + bias;
+  return cache.centre.distanceTo(renderCamera.position) + bias;
 }
 
 function retailTransparentSort(a, b) {
@@ -880,7 +926,7 @@ renderer.setTransparentSort(retailTransparentSort);
 
 function updateRenderDistances(root, renderCamera) {
   root.updateMatrixWorld();
-  root.traverse(object => {
+  root.traverseVisible(object => {
     if (object.isMesh && (Array.isArray(object.material) ? object.material : [object.material]).some(material => material?.transparent)) {
       object.userData.retailSortDistance = retailRenderDistance(object, renderCamera);
     }
@@ -907,6 +953,7 @@ function renderViewport() {
 
 function updateCameraFacing() {
   if (!cameraFacingItems.length || transformPreview) return;
+  if (cameraFacingQuaternion?.equals(camera.quaternion)) return;
   // Game camera identity faces +Y with Z up. Three's camera faces -Z.
   const gameQuaternion = camera.quaternion.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)).toArray();
   const matrices = new Map();
@@ -929,6 +976,7 @@ function updateCameraFacing() {
     item.object.matrixWorldNeedsUpdate = true;
   }
   if (state.items.get(state.selected)?.cameraDependent) selectionBox?.update();
+  (cameraFacingQuaternion ||= new THREE.Quaternion()).copy(camera.quaternion);
 }
 
 function updateVisibleStats() {
@@ -1688,7 +1736,7 @@ async function assetMutation(action, body, restoreId = state.selected) {
 }
 
 function showAssetResult(result, title) {
-  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.0.0');
+  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.0.1');
   const status = document.createElement('div'); status.className = `asset-import-result${result.gameExportable ? '' : ' preview-only'}`;
   status.textContent = translate(result.gameExportable ? 'Modification compatible avec l’export dans le jeu.' : 'Ajout conservé dans le projet et l’export d’assets. Aperçu uniquement dans le niveau ; non intégré au jeu.');
   body.append(status);
@@ -1715,7 +1763,7 @@ async function deleteAddition() {
 
 function showResetLevel() {
   if (!state.level || state.loading || state.busy) return;
-  const body = openDialog('Restaurer le niveau d’origine', 'AZURIK LEVEL STUDIO 2.0.0');
+  const body = openDialog('Restaurer le niveau d’origine', 'AZURIK LEVEL STUDIO 2.0.1');
   const paragraph = document.createElement('p'); paragraph.textContent = 'Rétablir les positions, transformations, modèles et textures du niveau actif depuis le dump source, puis supprimer les ajouts du niveau. Les autres niveaux sont conservés. Ctrl Z permet de récupérer vos modifications.';
   const actions = document.createElement('div'); actions.className = 'asset-import-actions';
   const cancel = document.createElement('button'); cancel.className = 'button secondary'; cancel.textContent = 'Annuler'; cancel.addEventListener('click', () => $('infoDialog').close());
@@ -1734,7 +1782,7 @@ function showAssetImport(kind, targetId = null) {
   if (!state.level || state.loading || state.busy) return;
   const replacing = targetId !== null;
   const title = kind === 'model' ? replacing ? 'Remplacer le modèle sélectionné' : 'Importer un modèle' : replacing ? 'Remplacer une texture du niveau' : 'Importer une texture PNG';
-  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.0.0');
+  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.0.1');
   const form = document.createElement('form'); form.className = 'asset-import-form';
   const note = document.createElement('p'); note.className = 'dialog-note';
   note.textContent = kind === 'model' ? 'OBJ, glTF 2.0, GLB ou JSON · 12 Mo maximum. Pour un glTF, sélectionnez aussi son fichier .bin. La géométrie est assemblée ; choisissez la texture ci-dessous. Les ajouts et duplications restent des aperçus. Un remplacement de même topologie peut être exporté dans le jeu et affecter ses autres instances.' : 'PNG · 8 Mo maximum. Un remplacement compatible conserve les dimensions et le format Xbox du jeu. Une texture partagée est remplacée dans toutes ses utilisations. Les autres imports restent dans le projet et l’export d’assets.';
@@ -1884,6 +1932,7 @@ function animate() {
     renderViewport(); renderDirty = false;
     renderedPosition.copy(camera.position); renderedQuaternion.copy(camera.quaternion); renderedZoom = camera.zoom;
     fpsFrames++;
+    if (cameraChanged || transform.dragging) fpsMotionFrames++;
   }
   if (dialogModel) { dialogModel.orbit.update(); dialogModel.renderer.render(dialogModel.scene, dialogModel.camera); }
   $('cameraPosition').hidden = !state.fly;
@@ -1895,7 +1944,15 @@ function animate() {
     $('cameraPosition').textContent = `${['X', 'Y', 'Z'].map((axis, i) => `${axis} ${decimal(camera.position.getComponent(i))}`).join(' · ')} | H ${decimal(heading)}° · V ${decimal(pitch)}°`;
     cameraHudTime = now;
   }
-  if (now - fpsStart >= 900) { $('fps').textContent = fpsFrames ? `${Math.round(fpsFrames * 1000 / (now - fpsStart))} FPS` : translate('Repos'); fpsStart = now; fpsFrames = 0; }
+  if (now - fpsStart >= 900) {
+    const idleAnimation = !fpsMotionFrames && state.animation && animationResources.size > 0;
+    const rate = Math.round(fpsFrames * 1000 / (now - fpsStart));
+    $('fps').textContent = fpsFrames ? idleAnimation ? `${translate('Textures')} · ${rate} ${translate('ips')}` : `${rate} FPS` : translate('Repos');
+    $('fps').title = idleAnimation
+      ? getLanguage() === 'fr' ? 'Vue immobile : seules les animations de textures rafraîchissent le rendu. Déplacez la caméra pour mesurer les FPS.' : 'Still view: only texture animations refresh the rendering. Move the camera to measure FPS.'
+      : getLanguage() === 'fr' ? 'Images rendues par seconde pendant les déplacements.' : 'Rendered frames per second while moving.';
+    fpsStart = now; fpsFrames = 0; fpsMotionFrames = 0;
+  }
 }
 animate();
 

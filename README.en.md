@@ -1,10 +1,14 @@
-# Azurik Level Studio 2.0.0
+# Azurik Level Studio 2.0.1
 
-**Version 2.0.0** of the Azurik level editor: a local Windows application for viewing and editing levels from your own copy of **Azurik: Rise of Perathia** on the original Xbox.
+**Version 2.0.1** of the Azurik level editor: a local Windows application for viewing and editing levels from your own copy of **Azurik: Rise of Perathia** on the original Xbox.
 
-[Windows download](https://github.com/AzurikPerathia/Azurik-Level-Editor/releases/tag/v2.0.0) · [French guide](README.fr.md) · [Screenshots](docs/SCREENSHOTS.md) · [Next version](ROADMAP.md)
+[Windows download](https://github.com/AzurikPerathia/Azurik-Level-Editor/releases/tag/v2.0.1) · [French guide](README.fr.md) · [Screenshots](docs/SCREENSHOTS.md) · [Next version](ROADMAP.md)
 
 ![Version 2.0.0 editor menus](docs/screenshots/v2-editor-menus.jpg)
+
+## Patch 2.0.1
+
+Unchanged lighting, reflection transforms and transparent bounds are cached without reducing scene detail or textures. A local A5 material-update benchmark fell from **4.19 to 1.16 ms per frame** (about 72% less CPU time); this does not measure GPU FPS. Stationary texture refreshes are now labelled separately from FPS during camera movement. Existing project and game data are preserved.
 
 ## New in 2.0.0
 
@@ -28,7 +32,7 @@ This refers **only to Xbox game cache partitions**. Use **Clear Cache** in xemu-
 
 ## Run on Windows
 
-1. Download **Azurik-Level-Studio-2.0.0-Windows-x64.zip** from the release and extract it.
+1. Download **Azurik-Level-Studio-2.0.1-Windows-x64.zip** from the release and extract it.
 2. Double-click **Azurik Level Studio.exe**. This real Windows executable includes Python and the application dependencies; no Python installation is necessary.
 3. Click **Import ISO / Importer un ISO**, select your local Azurik Xbox `.iso` or `.xiso`, and wait for extraction. You can also enter its local path.
 4. Choose a level, select an object, unlock it when necessary, then use the transform tools or precise inspector fields.
