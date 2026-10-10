@@ -1,10 +1,26 @@
-# Azurik Level Studio 2.0.1
+# Azurik Level Studio 2.1.0
 
-**Version 2.0.1** of the Azurik level editor: a local Windows application for viewing and editing levels from your own copy of **Azurik: Rise of Perathia** on the original Xbox.
+**Version 2.1.0** of the Azurik level editor: a local Windows application for viewing and editing levels from your own copy of **Azurik: Rise of Perathia** on the original Xbox.
 
-[Windows download](https://github.com/AzurikPerathia/Azurik-Level-Editor/releases/tag/v2.0.1) · [French guide](README.fr.md) · [Screenshots](docs/SCREENSHOTS.md) · [Next version](ROADMAP.md)
+[Windows download](https://github.com/Azurik-Modding-Hub/Azurik-Level-Editor/releases/tag/v2.1.0) · [French guide](README.fr.md) · [Level management and ISO guide](docs/LEVELS_V21.md) · [Screenshots](docs/SCREENSHOTS.md) · [Roadmap](ROADMAP.md)
 
 ![Version 2.0.0 editor menus](docs/screenshots/v2-editor-menus.jpg)
+
+## New in 2.1.0
+
+- **Levels menu:** create a registered native level from a clean source template, remove a level from the mod, or restore a removed level. Creation copies the original geometry, collision and scripts; current project edits are not copied. This is not an empty-level compiler.
+- **Compatible entry redirection:** replace an original level with a retained clone of the same template, preserving its existing entry-point identities. The selector and training room remain protected.
+- **Global history:** Ctrl Z and Ctrl Shift Z undo/redo one action in order across level management, transforms and asset edits. Saved history remains available after reopening the project.
+- **Native export:** new XBRs, the updated `gamedata/index/index.xbr` registry and an explicit `iso-plan.json` describe additions, replacements and removals.
+- **Build a mod ISO:** select the exported folder, the matching source ISO and a new output path. The builder updates the native `prefetch-lists.txt` dependencies, rebuilds the disc directories and verifies the resulting files without changing the source disc or Xbox executable.
+
+**Validation status:** structural checks, synthetic archive/disc tests and isolated file verification are available. Loading the new levels, portals and inherited quest state in **Xemu still needs runtime testing**. Scripts, collisions and native IDs remain inherited from the template. [Workflow and limits](docs/LEVELS_V21.md).
+
+![2.1.0 native level creation form](docs/screenshots/v21-level-creation.jpg)
+
+![2.1.0 separate mod ISO construction form](docs/screenshots/v21-iso-build.jpg)
+
+These captures show the editor forms in an isolated test project; they do not show gameplay validation.
 
 ## Patch 2.0.1
 
@@ -32,17 +48,17 @@ This refers **only to Xbox game cache partitions**. Use **Clear Cache** in xemu-
 
 ## Run on Windows
 
-1. Download **Azurik-Level-Studio-2.0.1-Windows-x64.zip** from the release and extract it.
+1. Download **Azurik-Level-Studio-2.1.0-Windows-x64.zip** from the release and extract it.
 2. Double-click **Azurik Level Studio.exe**. This real Windows executable includes Python and the application dependencies; no Python installation is necessary.
 3. Click **Import ISO / Importer un ISO**, select your local Azurik Xbox `.iso` or `.xiso`, and wait for extraction. You can also enter its local path.
 4. Choose a level, select an object, unlock it when necessary, then use the transform tools or precise inspector fields.
-5. **Save** preserves your project. **Export mod** creates new XBR copies and a report. Read the report before integrating these into a copy of your game.
+5. **Save** preserves your project. **Export mod** creates new XBR copies, a registry update when needed, an ISO plan and a report. **Levels → Build a mod ISO**, also offered after export, creates a separate test disc from that export and your matching source ISO.
 
 The repository contains the executable at `windows/Azurik Level Studio.exe`. **Ouvrir Azurik Level Studio.bat** is an optional launcher; `.cmd` and PowerShell launchers are included too. The application opens its own desktop window and uses Microsoft Edge WebView2 for the viewport. Windows x64, .NET Framework and the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) are required. WebView2 is normally already installed on recent Windows systems.
 
 Projects, imports, caches, exports and logs for the executable live in **`%LOCALAPPDATA%\AzurikLevelStudio`**, separate from bundled application files. The launcher reuses an Azurik server only when its version matches. An older editor is left running and a free local port is selected. It stops only its own server. No console window is required.
 
-Back up an existing project before V2 asset editing, which upgrades its format to version 2. Close older editor windows before editing the same project.
+Back up an existing project before upgrading. Asset editing uses project format 2; level management uses format 3. The editor loads existing format 1 and 2 projects. Close older editor windows before editing the same project.
 
 ## Included explorer and editing features
 
@@ -54,6 +70,7 @@ Back up an existing project before V2 asset editing, which upgrades its format t
 - **Persistent locks:** individual or whole-level protection, including linked parts and affected descendants, enforced by the backend.
 - **Asset browser:** search textures, models, materials and references; inspect sequences and cubemap faces; export a sorted PNG/glTF catalogue using the included asset exporter.
 - **Local ISO import:** bounded XDVDFS validation and Azurik identity checks, streaming progress, isolated projects and reopening previous imports.
+- **Native level management and ISO construction:** clean template clones, compatible entry aliases, reversible removal and a separate verified output disc.
 - **PNG viewport captures** saved in the project with preview and download.
 - **Bundled Windows executable**, original application icon, version metadata and SHA-256 checksum. No retail archives or disc images included.
 
@@ -77,7 +94,9 @@ Focus the viewport before navigating. Keys follow their letter labels, including
 
 Source archives and input images are read-only. Placements with verified serialized bindings are written to **new XBR copies**, with original/output checksums and changed-byte reports. Other decoded blocks use clearly marked **preview-only overrides**. These are saved separately in `scene-overrides.json`, not silently applied to the game. Game edits and preview edits have separate counts.
 
-**Visual transforms do not move collision geometry.** Check collisions and gameplay in your test copy. The editor exports modified archives; automatic complete ISO rebuilding is not a feature of 2.0.0.
+**Visual transforms do not move collision geometry.** Check collisions and gameplay in your test copy. Version 2.1.0 can build a separate ISO from an exported mod and the matching original image. The build report verifies disc structure and file bytes; it deliberately records `imageTestedInGame: false`. Successful construction does not certify gameplay.
+
+A created level inherits its template's geometry, collisions, scripts, portal/spawn IDs and quest-state links. Its displayed family is a catalogue label. Creating a level does not create a new portal or campaign entry automatically. To test it through an existing entry, remove its original level from the mod and select a clone of that same template as the replacement. Cross-template entry remapping and authoring arbitrary empty levels are not supported. [Level guide](docs/LEVELS_V21.md).
 
 The renderer reads game data without running the complete Xbox engine. Characters appear in bind pose. Scripts, skeletal animation, particles, point/spot lighting and some generated texture coordinates remain partial. Skies and the verified A5 two-layer fog/reflection path are supported, with explicit day/night previews. A pixel-identical gameplay render is not claimed. [Screenshot captions](docs/SCREENSHOTS.md) distinguish editor views from gameplay validation.
 
@@ -106,6 +125,6 @@ python -m pytest -q
 
 Node.js is required for frontend regression tests, not for running the application. Tests cover parsing, transforms/pivots, normals/lighting, asset export, navigation, localization, ISO import isolation, locks, undo/redo, guarded exports, desktop process ownership and frozen data/resource paths. Disc fixtures are synthetic. Optional real-dump checks use `AZURIK_GAME_DUMP` and skip when unavailable.
 
-The editor also lives at `tools/level_studio` in the [Expensions repository](https://github.com/AzurikPerathia/Elemental_Games_Modding---Expensions), alongside the randomizer. The English contribution is [upstream PR #2](https://github.com/JTCPP/Elemental_Games_Modding/pull/2).
+The editor also lives at `tools/level_studio` in the [Expensions repository](https://github.com/Azurik-Modding-Hub/Elemental_Games_Modding---Expensions), alongside the randomizer. The English contribution is [upstream PR #2](https://github.com/JTCPP/Elemental_Games_Modding/pull/2).
 
 Editor source: [MIT license](LICENSE). Dependencies: [third-party notices](THIRD_PARTY_NOTICES.md). Game archives, disc images, extracted assets, saves and user projects are excluded from releases. Illustrations were supplied by the project owner.

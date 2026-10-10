@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#111820">
-  <title>Azurik · Level Studio 2.0.1</title>
+  <title>Azurik · Level Studio 2.1.0</title>
   <link rel="stylesheet" href="/style.css">
   <link rel="icon" href="/assets/studio.ico">
   <script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
@@ -48,7 +48,7 @@
   </svg>
 
   <header class="topbar">
-    <div class="brand"><div class="brand-mark"><span></span><span></span><span></span></div><div><strong>AZURIK</strong><span>LEVEL STUDIO</span></div><span class="version">2.0.1 · LOCAL</span></div>
+    <div class="brand"><div class="brand-mark"><span></span><span></span><span></span></div><div><strong>AZURIK</strong><span>LEVEL STUDIO</span></div><span class="version">2.1.0 · LOCAL</span></div>
     <div class="project-title"><span class="project-dot"></span><span>Rise of Perathia</span><span class="project-separator">/</span><strong id="headerLevel">Chargement du projet…</strong><span id="dirtyDot" class="dirty-dot" hidden></span></div>
     <div class="header-actions"><label class="language-control"><span class="sr-only">Langue de l’interface</span><select id="languageSelect" class="compact-select" aria-label="Langue de l’interface"><option value="fr" lang="fr" translate="no">Français</option><option value="en" lang="en" translate="no">English</option></select></label><button id="importIsoBtn" class="button secondary import-button" title="Importer un fichier ISO Xbox"><svg><use href="#i-folder"/></svg><span>Importer un ISO</span></button><input id="isoFileInput" type="file" accept=".iso,.xiso" hidden aria-label="Importer un fichier ISO Xbox"><button id="helpBtn" class="icon-button" title="Commandes et raccourcis" aria-label="Commandes et raccourcis"><svg><use href="#i-help"/></svg></button><button id="saveBtn" class="button secondary" disabled><svg><use href="#i-save"/></svg><span>Enregistrer</span></button><button id="exportBtn" class="button primary" disabled><svg><use href="#i-export"/></svg><span>Exporter le mod</span></button></div>
   </header>
@@ -58,6 +58,12 @@
       <button data-action="importIso"><span>Importer un ISO</span></button>
       <button data-action="save"><span>Enregistrer</span><kbd>Ctrl S</kbd></button>
       <button data-action="export"><span>Exporter le mod</span><kbd>Ctrl Maj E</kbd></button>
+    </div></details>
+    <details class="editor-menu"><summary>Niveaux</summary><div class="menu-popup">
+      <button data-action="createLevel"><span>Créer un niveau depuis un modèle</span></button>
+      <button data-action="deleteLevel"><span>Supprimer un niveau du mod</span></button>
+      <button data-action="manageLevels"><span>Gérer les niveaux</span></button>
+      <button data-action="buildIso"><span>Construire une ISO du mod</span></button>
     </div></details>
     <details class="editor-menu"><summary>Édition</summary><div class="menu-popup">
       <button data-action="undo"><span>Annuler</span><kbd>Ctrl Z</kbd></button>
@@ -81,7 +87,7 @@
     </div></details>
     <button data-action="help" class="menu-help">Aide et raccourcis</button>
     <span id="navigationMode" class="navigation-mode">Caméra libre</span>
-    <span class="menu-version">2.0.1</span>
+    <span class="menu-version">2.1.0</span>
   </nav>
 
   <div class="workspace">

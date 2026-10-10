@@ -50,7 +50,7 @@ class ProjectAssets:
         return {"changed": changed, "id": identifier, "scene": self.get_scene(level), "warning": warning,
                 "gameExportable": native, "pendingCount": self.pending_count(), "previewCount": self.preview_count(),
                 "levelPendingCount": self.pending_count(level), "levelPreviewCount": self.preview_count(level),
-                "canUndo": bool(state["undo"]), "canRedo": bool(state["redo"])}
+                **self._combined_history()}
 
     def _asset_commit(self, level, before, identifier, operation, warning=None, native=False):
         state = self._state(level)
@@ -59,7 +59,7 @@ class ProjectAssets:
         if changed:
             previous_redo = copy.deepcopy(state["redo"])
             previous_version = self._project["version"]
-            self._project["version"] = 2
+            self._project["version"] = max(2, self._project["version"])
             state["undo"].append({"operation": "assets", "action": operation, "id": identifier,
                                   "beforeState": before, "afterState": after})
             state["redo"].clear()
@@ -417,6 +417,8 @@ class ProjectAssets:
         """Include portable immutable inputs and every project asset placement."""
         imports = set()
         for level, state in self._project["levels"].items():
+            if not self._level_active(level):
+                continue
             custom = {key: copy.deepcopy(state.get(key, {})) for key in ASSET_KEYS if key not in ("edits", "previewEdits")}
             if any(custom.values()):
                 preview_levels.setdefault(level, {"sourceSha256": state["sourceHash"], "overrides": {}})["assets"] = custom

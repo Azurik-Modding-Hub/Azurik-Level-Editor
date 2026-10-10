@@ -37,3 +37,11 @@ Placed structures and sky/fog preview with original source textures.
 Realm layout, night-sky preview and texture browser.
 
 ![Realm of Life night overview](screenshots/life-night-overview.png)
+
+## Version 2.1.0 — level management
+
+The following captures show the running 2.1.0 editor with an isolated test project. They illustrate its actual creation and ISO construction dialogs. They do not show gameplay or certify a new level's behaviour in Xemu.
+
+![Create a level from a template](screenshots/v21-level-creation.jpg)
+
+![Build a new mod ISO](screenshots/v21-iso-build.jpg)

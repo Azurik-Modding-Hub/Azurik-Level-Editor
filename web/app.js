@@ -7,6 +7,7 @@ import { initLanguage, getLanguage, onLanguageChange, translate, translateLevelN
 import { createSourceImport } from '/source-import.mjs';
 import { parseModelFiles, readPngFile } from '/asset-import.mjs';
 import { decodeSceneTransport } from '/scene-transport.mjs';
+import { createLevelManager } from '/levels.js';
 
 const $ = id => document.getElementById(id);
 const number = value => formatNumber(Math.round(Number(value) || 0));
@@ -17,7 +18,7 @@ const vector = array => new THREE.Vector3(...(Array.isArray(array) ? array : [0,
 const samePosition = (a, b) => a.every((n, i) => Math.abs(n - b[i]) < 0.0001);
 const sourceOffset = value => typeof value === 'number' ? `0x${value.toString(16).toUpperCase()}` : (value ?? '—');
 const isEditable = item => !!item && !item.locked && (item.previewEditable || (item.editable !== false && state.data?.capabilities?.[item.kind === 'mesh' ? 'meshTranslation' : 'entityTranslation'] !== false));
-const groupLabel = value => translate(({ air: 'Domaine de l’Air', earth: 'Domaine de la Terre', fire: 'Domaine du Feu', water: 'Domaine de l’Eau', perathia: 'Perathia', death: 'Domaine de la Mort', cinematic: 'Cinématiques', other: 'Autres niveaux' })[value] || value || 'Niveaux du jeu');
+const groupLabel = value => translate(({ air: 'Domaine de l’Air', earth: 'Domaine de la Terre', fire: 'Domaine du Feu', water: 'Domaine de l’Eau', life: 'Domaine de la Vie', perathia: 'Perathia', death: 'Domaine de la Mort', cinematic: 'Cinématiques', other: 'Autres niveaux' })[value] || value || 'Niveaux du jeu');
 const isWorldSpace = item => !!(item?.worldPositionVerified || item?.coordinateSpace === 'world' || item?.instance);
 const isTransformEditable = (item, mode) => !!item?.localRotation && !!item?.localScale && !item.locked && (item.previewEditable || (item.editable !== false && state.data?.capabilities?.[`${item.kind === 'mesh' ? 'mesh' : 'entity'}${mode === 'rotate' ? 'Rotation' : 'Scale'}`] !== false && Number.isFinite(item.editBinding?.[mode === 'rotate' ? 'rotationOffset' : 'scaleOffset'])));
 const matrixFromRows = values => new THREE.Matrix4().set(...values);
@@ -173,7 +174,9 @@ function updateActions() {
     redo: available && state.canRedo, duplicate: available && selectedMesh && !state.items.get(state.selected)?.locked,
     delete: available && deletedAddition && !state.items.get(state.selected)?.locked, resetLevel: available,
     importModel: available, replaceModel: available && selectedMesh && !state.items.get(state.selected)?.locked,
-    importTexture: available, replaceTexture: available && !!state.data?.textures?.length, importIso: !state.loading && !state.busy && !state.importing };
+    importTexture: available, replaceTexture: available && !!state.data?.textures?.length, importIso: !state.loading && !state.busy && !state.importing,
+    createLevel: available, deleteLevel: available && !state.catalog?.levels?.find(level => level.id === state.level)?.technical && state.catalog?.levels?.find(level => level.id === state.level)?.canClone !== false,
+    manageLevels: available, buildIso: available && !!state.exportDirectory };
   document.querySelectorAll('[data-action]').forEach(button => { if (button.dataset.action in actions) button.disabled = !actions[button.dataset.action]; });
   $('importIsoBtn').disabled = state.loading || state.busy || state.importing;
   const selected = state.items.get(state.selected);
@@ -750,18 +753,7 @@ async function initialize() {
   updateActions();
   try {
     const catalog = await api('/api/catalog');
-    state.catalog = catalog;
-    state.levels = catalog.levels || [];
-    const select = $('levelSelect');
-    select.replaceChildren();
-    const groups = new Map();
-    for (const level of state.levels) {
-      const groupName = groupLabel(level.group || level.family);
-      let group = groups.get(groupName);
-      if (!group) { group = document.createElement('optgroup'); group.label = groupName; select.append(group); groups.set(groupName, group); }
-      const option = document.createElement('option'); option.value = level.id; option.textContent = translateLevelName(level.name || level.label || level.id); group.append(option);
-    }
-    $('levelCount').textContent = `${state.levels.length} NIVEAUX`;
+    renderLevelCatalog(catalog);
     $('sourcePath').textContent = catalog.sourceDir ? catalog.sourceDir.split(/[\\/]/).filter(Boolean).at(-1) : translate('Changements enregistrés dans le projet local');
     $('sourcePath').title = catalog.sourceDir || '';
     let lastLevel;
@@ -784,6 +776,30 @@ async function initialize() {
     setStatus(error.message, true);
     updateActions();
   }
+}
+
+function renderLevelCatalog(catalog) {
+  state.catalog = catalog; state.levels = catalog.levels || [];
+  const select = $('levelSelect'); select.replaceChildren();
+  const groups = new Map();
+  for (const level of state.levels) {
+    const label = groupLabel(level.group || level.family);
+    let group = groups.get(label);
+    if (!group) { group = document.createElement('optgroup'); group.label = label; select.append(group); groups.set(label, group); }
+    const option = document.createElement('option'); option.value = level.id;
+    option.textContent = level.custom ? level.name : translateLevelName(level.name || level.label || level.id);
+    if (level.custom) option.setAttribute('data-i18n-ignore', '');
+    group.append(option);
+  }
+  $('levelCount').textContent = `${state.levels.length} ${translate('NIVEAUX')}`;
+}
+
+async function refreshLevelCatalog(result = {}) {
+  renderLevelCatalog(await api('/api/catalog'));
+  const target = state.levels.find(level => level.id === result.activeLevel)
+    || state.levels.find(level => level.id === state.level) || state.levels[0];
+  if (target) await loadLevel(target.id);
+  state.unsaved = true; updateActions();
 }
 
 async function loadLevel(id, options = {}) {
@@ -1663,7 +1679,9 @@ async function historyAction(action) {
   const selectedId = state.selected;
   try {
     const result = await api(`/api/${action}`, { level: state.level });
+    if (result.catalogChanged) { await refreshLevelCatalog(result); return; }
     const data = result.scene || result;
+    if (data.meshes && data.id !== state.level) { await refreshLevelCatalog({ activeLevel: data.id }); return; }
     if (data.meshes) buildScene(data, true, selectedId);
     else if (data.id && state.items.has(data.id)) {
       const item = state.items.get(data.id); item.object.position.copy(vector(data.position)); item.position = data.position;
@@ -1692,11 +1710,18 @@ async function exportMod() {
   state.busy = true; updateActions(); $('exportBtn').querySelector('span').textContent = 'Export en cours…';
   try {
     const result = await api('/api/export', {});
+    state.exportDirectory = result.directory || result.path;
     const body = openDialog('Votre mod est exporté', 'EXPORT DU JEU');
-    const description = document.createElement('p'); description.textContent = `${number(result.fileCount)} fichier${result.fileCount > 1 ? 's' : ''} exporté${result.fileCount > 1 ? 's' : ''} · ${number(result.editCount ?? state.pending)} modification${(result.editCount ?? state.pending) > 1 ? 's' : ''}.`;
+    const changeCount = (result.editCount ?? state.pending) + (result.levelManagement?.changeCount || 0);
+    const description = document.createElement('p'); description.textContent = `${number(result.fileCount)} fichier${result.fileCount > 1 ? 's' : ''} exporté${result.fileCount > 1 ? 's' : ''} · ${number(changeCount)} modification${changeCount > 1 ? 's' : ''}.`;
     const path = document.createElement('code'); path.className = 'export-path'; path.textContent = result.directory || result.path || 'Consultez le dossier exports du projet.';
     const note = document.createElement('p'); note.className = 'dialog-note'; note.textContent = 'Les fichiers d’origine du dump sont conservés. Testez le niveau exporté dans le jeu : les collisions, scripts et modèles animés ne sont pas simulés par cette vue.';
     body.append(description, path, note);
+    if (result.gameFiles?.length) {
+      const build = document.createElement('button'); build.className = 'button primary';
+      build.textContent = translate('Construire une ISO du mod');
+      build.addEventListener('click', () => levelManager.showBuildIso(state.exportDirectory)); body.append(build);
+    }
     if (navigator.clipboard && (result.directory || result.path)) { const copy = document.createElement('button'); copy.className = 'button secondary'; copy.textContent = 'Copier le chemin'; copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(result.directory || result.path); copy.textContent = 'Chemin copié'; } catch { toast('Le navigateur n’autorise pas la copie automatique.', true); } }); body.append(copy); }
     state.unsaved = false;
     setStatus(`Mod exporté · ${result.directory || result.path || 'Dossier exports'}`);
@@ -1736,7 +1761,7 @@ async function assetMutation(action, body, restoreId = state.selected) {
 }
 
 function showAssetResult(result, title) {
-  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.0.1');
+  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.1.0');
   const status = document.createElement('div'); status.className = `asset-import-result${result.gameExportable ? '' : ' preview-only'}`;
   status.textContent = translate(result.gameExportable ? 'Modification compatible avec l’export dans le jeu.' : 'Ajout conservé dans le projet et l’export d’assets. Aperçu uniquement dans le niveau ; non intégré au jeu.');
   body.append(status);
@@ -1763,7 +1788,7 @@ async function deleteAddition() {
 
 function showResetLevel() {
   if (!state.level || state.loading || state.busy) return;
-  const body = openDialog('Restaurer le niveau d’origine', 'AZURIK LEVEL STUDIO 2.0.1');
+  const body = openDialog('Restaurer le niveau d’origine', 'AZURIK LEVEL STUDIO 2.1.0');
   const paragraph = document.createElement('p'); paragraph.textContent = 'Rétablir les positions, transformations, modèles et textures du niveau actif depuis le dump source, puis supprimer les ajouts du niveau. Les autres niveaux sont conservés. Ctrl Z permet de récupérer vos modifications.';
   const actions = document.createElement('div'); actions.className = 'asset-import-actions';
   const cancel = document.createElement('button'); cancel.className = 'button secondary'; cancel.textContent = 'Annuler'; cancel.addEventListener('click', () => $('infoDialog').close());
@@ -1782,7 +1807,7 @@ function showAssetImport(kind, targetId = null) {
   if (!state.level || state.loading || state.busy) return;
   const replacing = targetId !== null;
   const title = kind === 'model' ? replacing ? 'Remplacer le modèle sélectionné' : 'Importer un modèle' : replacing ? 'Remplacer une texture du niveau' : 'Importer une texture PNG';
-  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.0.1');
+  const body = openDialog(title, 'AZURIK LEVEL STUDIO 2.1.0');
   const form = document.createElement('form'); form.className = 'asset-import-form';
   const note = document.createElement('p'); note.className = 'dialog-note';
   note.textContent = kind === 'model' ? 'OBJ, glTF 2.0, GLB ou JSON · 12 Mo maximum. Pour un glTF, sélectionnez aussi son fichier .bin. La géométrie est assemblée ; choisissez la texture ci-dessous. Les ajouts et duplications restent des aperçus. Un remplacement de même topologie peut être exporté dans le jeu et affecter ses autres instances.' : 'PNG · 8 Mo maximum. Un remplacement compatible conserve les dimensions et le format Xbox du jeu. Une texture partagée est remplacée dans toutes ses utilisations. Les autres imports restent dans le projet et l’export d’assets.';
@@ -2027,6 +2052,7 @@ $('helpBtn').addEventListener('click', () => {
   const keys = getLanguage() === 'fr' ? 'Z / Q / S / D' : 'W / Q / S / D';
   const rows = [['Orbiter autour du niveau', 'Caméra orbitale · clic gauche + glisser'], ['Regarder à 360° sur place', 'Caméra libre · clic droit + glisser'], ['Flèches : regarder sur place', '← / → / ↑ / ↓'], ['Avancer / gauche / reculer / droite', keys], ['Vitesse de déplacement', 'Menu Vitesse · Maj accélère · Alt ralentit'], ['Monter / descendre en caméra libre', 'Espace / Ctrl'], ['Zoomer', 'Molette'], ['Déplacer / tourner / redimensionner', 'W / E / R · caméra orbitale / repère monde / local'], ['Rotation et échelle précises', 'Champs locaux de l’inspecteur · degrés'], ['Verrouiller la sélection', 'Bouton Verrouiller dans l’inspecteur'], ['Sélectionner un élément', 'Clic sur la vue ou la hiérarchie'], ['Cadrer la sélection / tout le niveau', 'F / Home'], ['Annuler / rétablir', 'Ctrl Z / Ctrl Maj Z'], ['Enregistrer le projet', 'Ctrl S'], ['Désélectionner', 'Échap']];
   rows.push(['Caméra libre / orbitale', 'Tab · vue 3D active'], ['Dupliquer la sélection', 'Ctrl D'], ['Supprimer l’ajout sélectionné', 'Suppr'], ['Restaurer le niveau d’origine', 'Édition → Restaurer le niveau d’origine'], ['Importer / remplacer modèles et textures', 'Menu Importation'], ['Exporter le mod', 'Ctrl Maj E']);
+  rows.push(['Créer / supprimer / restaurer les niveaux', 'Menu Niveaux'], ['Construire une ISO du mod', 'Menu Niveaux → Construire une ISO du mod']);
   const grid = document.createElement('div'); grid.className = 'shortcut-grid';
   rows.forEach(row => row.forEach(value => { const span = document.createElement('span'); span.textContent = translate(value); grid.append(span); }));
   body.append(grid);
@@ -2068,12 +2094,15 @@ window.addEventListener('beforeunload', event => { if (state.unsaved || state.im
 const sourceImport = createSourceImport({ api, openDialog, translate, formatNumber, toast,
   setBusy: value => { state.importing = value; updateActions(); },
   onSourceOpened: async () => {
-    ++state.request; state.level = null; state.data = null; state.catalog = null; state.unsaved = false; state.pending = 0; state.canUndo = false; state.canRedo = false;
+    ++state.request; state.level = null; state.data = null; state.catalog = null; state.exportDirectory = null; state.unsaved = false; state.pending = 0; state.canUndo = false; state.canRedo = false;
     characterCatalog = []; libraryArchives = null; libraryCache.clear(); libraryController?.abort();
     state.libraryData = null; state.libraryError = ''; state.archive = ''; state.assetScope = 'level';
     $('assetScope').value = 'level'; freeNavigation.reset(); cleanScene(); await initialize();
   } });
 $('importIsoBtn').addEventListener('click', sourceImport.show);
+const levelManager = createLevelManager({ api, openDialog, closeDialog: () => $('infoDialog').close(), toast, translate,
+  getContext: () => ({ level: state.level, catalog: state.catalog, exportDirectory: state.exportDirectory,
+    sourceIsoPath: state.catalog?.sourceIsoPath }), onChanged: refreshLevelCatalog });
 const menuActions = {
   importIso: sourceImport.show, save: saveProject, export: exportMod, undo: () => historyAction('undo'), redo: () => historyAction('redo'),
   duplicate: duplicateSelection, delete: deleteAddition, resetLevel: showResetLevel,
@@ -2081,6 +2110,8 @@ const menuActions = {
   importTexture: () => showAssetImport('texture'), replaceTexture: () => showAssetImport('texture', state.data?.textures?.[0]?.id ?? null),
   freeCamera: () => setFly(true), orbitCamera: () => setFly(false), frame: () => frameObject(state.items.get(state.selected)?.object),
   frameAll: () => frameObject(), viewSettings: showViewSettings, help: () => $('helpBtn').click(),
+  createLevel: levelManager.showCreate, deleteLevel: () => levelManager.showDelete(state.level),
+  manageLevels: levelManager.showManage, buildIso: () => levelManager.showBuildIso(),
 };
 const closeMenus = () => document.querySelectorAll('.editor-menu[open]').forEach(menu => { menu.open = false; });
 document.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', () => {

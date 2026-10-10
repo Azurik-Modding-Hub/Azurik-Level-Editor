@@ -10,7 +10,7 @@ In the repository: `windows/Azurik Level Studio.exe`, **Ouvrir Azurik Level Stud
 
 Optional arguments: `--source "C:\Games\Azurik dump"`, `--port 8770`, `--debug`. Diagnostics are off by default. An existing server is reused only when its version matches; an older editor is left running and a new free local port is selected. An unrelated service produces a conflict message. Only a server started by this launcher is closed with the window.
 
-Frozen builds read bundled files from PyInstaller's extraction directory and write data under `%LOCALAPPDATA%\AzurikLevelStudio`. Logs include `logs/desktop-error.log` and `logs/frozen-server.log`. Source runs keep data beside the code. Imports and texture caches need additional disk space. Version 2.0.0 uses the owner's Perathia Modding Hub artwork for the executable and native window icon. Existing projects are compatible; new V2 operations should be opened with V2.
+Frozen builds read bundled files from PyInstaller's extraction directory and write data under `%LOCALAPPDATA%\AzurikLevelStudio`. Logs include `logs/desktop-error.log` and `logs/frozen-server.log`. Source runs keep data beside the code. Imports and texture caches need additional disk space. Version 2.0.0 uses the owner's Perathia Modding Hub artwork for the executable and native window icon. Existing projects are compatible. Projects using level management require 2.1.0 or later; do not edit the same project with an older editor window.
 
 ## Rebuild
 

@@ -18,6 +18,8 @@ def test_real_messages_counts_and_source_names_survive_translation():
     run_node(IMPORTS + """
 setLanguage('en');
 assert.equal(translate('Enregistrer'),'Save');
+assert.equal(translate('34 NIVEAUX'),'34 LEVELS');
+assert.equal(translate('102 NIVEAUX'),'102 LEVELS');
 assert.equal(translate('11 modifications du jeu'),'11 game changes');
 assert.equal(translate('1 modification du jeu'),'1 game change');
 assert.equal(translate('11 modifications du jeu · 2 modifications d’aperçu'),'11 game changes · 2 preview changes');

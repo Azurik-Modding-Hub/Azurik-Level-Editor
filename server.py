@@ -28,6 +28,7 @@ from editor_backend import DEFAULT_SOURCE, DEFAULT_TOOLKIT
 from xbox_iso import ISOImports, MAX_IMAGE_BYTES
 from studio_paths import ASSET_ROOT, DATA_ROOT
 from studio_version import VERSION
+from level_jobs import LevelBuildJobs
 
 ROOT = ASSET_ROOT
 MAX_REQUEST = 64 * 1024
@@ -120,6 +121,7 @@ class StudioServer(ThreadingHTTPServer):
         self.character_library = None
         self.asset_library = None
         self.imports = ISOImports(imports_dir or DATA_ROOT / "imports")
+        self.level_builds = LevelBuildJobs()
         self.original_backend = backend
         self.active_source = "original" if backend is not None else None
         self.static_cache = OrderedDict()
@@ -276,6 +278,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             if route.path == "/api/import-iso":
                 self._json(self.server.imports.status(query.get("id", [""])[0]))
                 return
+            if route.path == '/api/build-iso':
+                self._json(self.server.level_builds.status(query.get('id', [''])[0]))
+                return
             if route.path == "/api/sources":
                 with self.server.studio_lock:
                     self._json(self.server.sources())
@@ -291,6 +296,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                                                    file=level["id"] + ".xbr") for level in catalog],
                                    "sourceDir": str(self.server.backend.source_dir),
                                    "projectDir": str(self.server.backend.project_dir)}
+                    manager = getattr(self.server.backend, 'level_management', None)
+                    catalog['levelManagement'] = manager() if manager else {'created': [], 'deleted': [], 'canUndo': False, 'canRedo': False}
                     self._json(catalog)
                 return
             if route.path == "/api/scene":
@@ -419,7 +426,19 @@ class StudioHandler(BaseHTTPRequestHandler):
                 return
             with self.server.studio_lock:
                 backend = self.server.require_backend()
-                if path == "/api/capture":
+                if path == '/api/build-iso':
+                    result = self.server.level_builds.start(payload.get('directory'), payload.get('input'),
+                        payload.get('output'), backend.exports_dir, backend.source_dir)
+                elif path == '/api/levels/create':
+                    result = backend.create_level(payload.get('template'), payload.get('id'),
+                        payload.get('name'), payload.get('family', 'perathia'))
+                elif path == '/api/levels/delete':
+                    result = backend.delete_level(payload.get('level'), payload.get('replacement'))
+                elif path == '/api/levels/restore':
+                    result = backend.restore_level(payload.get('level'))
+                elif path in ('/api/levels/undo', '/api/levels/redo'):
+                    result = backend.level_history(path.endswith('/undo'))
+                elif path == "/api/capture":
                     result = save_capture(backend, payload.get("image"))
                 elif path == "/api/reset-level":
                     result = backend.reset_level(payload["level"])
@@ -463,8 +482,9 @@ class StudioHandler(BaseHTTPRequestHandler):
                     else:
                         result["scene"] = self._scene(payload["level"])
                 elif path in ("/api/undo", "/api/redo"):
-                    getattr(backend, path.split("/")[-1])(payload["level"])
-                    result = self._scene(payload["level"])
+                    result = getattr(backend, path.split("/")[-1])(payload["level"])
+                    if not result.get('catalogChanged'):
+                        result = self._scene(result.get('activeLevel', payload['level']))
                 elif path == "/api/save":
                     result = backend.save()
                 elif path == "/api/export":

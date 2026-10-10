@@ -19,6 +19,7 @@ from pathlib import Path
 from uuid import uuid4
 from studio_paths import ASSET_ROOT, DATA_ROOT
 from project_assets import ProjectAssets
+from project_levels import ProjectLevels, LEVEL_WARNING
 
 STUDIO_ROOT = DATA_ROOT
 
@@ -238,7 +239,7 @@ def scan_objects(data: bytes) -> list[dict]:
     return objects
 
 
-class StudioBackend(ProjectAssets):
+class StudioBackend(ProjectLevels, ProjectAssets):
     """Thread-safe projects; all source bytes stay read-only throughout."""
     def __init__(self, source_dir=DEFAULT_SOURCE, project_dir=None, exports_dir=None, toolkit_dir=DEFAULT_TOOLKIT, texture_dir=None):
         self.source_dir = Path(source_dir).resolve()
@@ -256,11 +257,12 @@ class StudioBackend(ProjectAssets):
         self._project = {"version": 1, "sourceDir": str(self.source_dir), "levels": {}}
         if self.project_path.exists():
             self._project = json.loads(self.project_path.read_text("utf-8"))
-            if (type(self._project.get("version")) is not int or self._project["version"] not in (1, 2)
+            if (type(self._project.get("version")) is not int or self._project["version"] not in (1, 2, 3)
                     or Path(self._project.get("sourceDir", "")).resolve() != self.source_dir):
                 raise ValueError("Ce projet appartient à un autre dump source.")
             if not isinstance(self._project.get("levels"), dict):
                 raise ValueError("Projet invalide.")
+            self._initialize_level_management()
             for level in self._project["levels"]:
                 self._source_path(level)
                 state = self._project["levels"][level]
@@ -274,10 +276,15 @@ class StudioBackend(ProjectAssets):
                         or not isinstance(state.get("previewEdits", {}), dict)):
                     raise ValueError("Verrouillages ou transformations de scène invalides.")
                 self._asset_defaults(state)
+        self._initialize_level_management()
+        self._seed_history_order()
 
     def _source_path(self, level_id: str) -> Path:
         if not isinstance(level_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", level_id):
             raise ValueError("Identifiant de niveau invalide.")
+        managed = self._managed_source_path(level_id)
+        if managed is not None:
+            return managed
         path = (self.gamedata_dir / f"{level_id}.xbr").resolve()
         if not _inside(path, self.gamedata_dir) or not path.is_file():
             raise FileNotFoundError(level_id)
@@ -294,7 +301,18 @@ class StudioBackend(ProjectAssets):
             result.append({"id": level, "name": LEVEL_NAMES.get(level, level.replace("_", " ")),
                            "family": family, "path": str(path), "sizeBytes": path.stat().st_size,
                            "pendingCount": self.pending_count(level)})
-        return sorted(result, key=lambda row: (row["family"], row["id"]))
+        for level, record in self._level_manager()['created'].items():
+            path = self._source_path(level)
+            result.append({'id': level, 'name': record['name'], 'family': record['family'],
+                           'path': str(path), 'sizeBytes': path.stat().st_size, 'custom': True,
+                           'nativeKey': 'levels/custom/' + level, 'template': record['template'],
+                           'pendingCount': self.pending_count(level)})
+        for row in result:
+            row['templateOrigin'] = self._template_origin(row['id'])
+            row['technical'] = row['id'] in {'training_room', 'selector'}
+            row['canClone'] = bool(row.get('custom')) or (row['family'] != 'cinematic' and self._has_level_resource(Path(row['path'])))
+        return sorted((row for row in result if row['id'] not in self._level_manager()['deleted']),
+                      key=lambda row: (row["family"], row["id"]))
 
     @staticmethod
     def _has_level_resource(path):
@@ -345,7 +363,7 @@ class StudioBackend(ProjectAssets):
         refs.extend({"kind": "level", "name": m.group(0)[:-1].decode("ascii"), "offset": m.start()}
                     for m in re.finditer(rb"levels/[A-Za-z0-9_/-]+\x00", data))
         parsed = self._parse_scene(self._native_buffer(data, state), level)
-        scene = {"id": level, "name": LEVEL_NAMES.get(level, level), "coordinateSystem": "Z-up",
+        scene = {"id": level, "name": self._level_name(level, LEVEL_NAMES.get(level, level)), "coordinateSystem": "Z-up",
                  "sourceHash": digest, "meshes": parsed.get("meshes", []), "objects": parsed.get("objects", []),
                  "nodes": parsed.get("nodes", []), "assets": parsed.get("assets", []), "sceneGraphResolved": bool(parsed.get("nodes")),
                  "collisions": parsed.get("collisions", {"positions": [], "indices": []}), "references": refs,
@@ -482,13 +500,15 @@ class StudioBackend(ProjectAssets):
 
     def get_scene(self, level_id: str) -> dict:
         with self._lock:
+            if not self._level_active(level_id):
+                raise ValueError('Ce niveau est supprimé du mod. Restaurez-le depuis le menu Niveaux.')
             from scene_graph import identity, inverse_affine, multiply, transform_point, transform_normals, effective_parent_matrix
             self._source_path(level_id)
             self._load(level_id)  # Check source stamps even when the public scene is reusable.
             state = self._state(level_id)
             from project_assets import ASSET_KEYS
             signature = _hash(json.dumps({key: state[key] for key in ASSET_KEYS} | {"locks": state["locks"],
-                                          "canUndo": bool(state["undo"]), "canRedo": bool(state["redo"]),
+                                          **self._combined_history(),
                                           "sourceHash": state["sourceHash"]}, sort_keys=True, allow_nan=False).encode("utf-8"))
             prepared = getattr(self, "_prepared_scenes", {})
             self._prepared_scenes = prepared
@@ -589,7 +609,7 @@ class StudioBackend(ProjectAssets):
             scene["pendingCount"] = self.pending_count()
             scene["previewCount"] = self.preview_count()
             scene["capabilities"]["previewTransforms"] = True
-            scene["history"] = {"canUndo": bool(self._state(level_id)["undo"]), "canRedo": bool(self._state(level_id)["redo"])}
+            scene["history"] = self._combined_history()
             if len(prepared) >= 2 and level_id not in prepared:
                 prepared.pop(next(iter(prepared)))
             prepared[level_id] = (signature, _scene_copy(scene))
@@ -758,7 +778,7 @@ class StudioBackend(ProjectAssets):
                 "localRotation": actual["localRotation"], "localScale": actual["localScale"],
                 "pendingCount": self.pending_count(), "previewCount": self.preview_count(),
                 "levelPendingCount": len(state["edits"]), "levelPreviewCount": len(state["previewEdits"]),
-                "canUndo": bool(state["undo"]), "canRedo": bool(state["redo"]), "warning": PREVIEW_WARNING, "scene": scene}
+                **self._combined_history(), "warning": PREVIEW_WARNING, "scene": scene}
 
     def _item(self, level, item_id):
         _, scene = self._load(level)
@@ -857,7 +877,7 @@ class StudioBackend(ProjectAssets):
             return {"id": item_id, "changed": changed, "position": actual,
                     "localRotation": after_values.get("rotation"), "localScale": after_values.get("scale"),
                     "pendingCount": self.pending_count(), "levelPendingCount": len(state["edits"]),
-                    "canUndo": bool(state["undo"]), "canRedo": bool(state["redo"]),
+                    **self._combined_history(),
                     "warning": MESH_WARNING if item_id.startswith("mesh-") else None,
                     "scene": self.get_scene(level_id)}
 
@@ -889,7 +909,7 @@ class StudioBackend(ProjectAssets):
                        for row in original["meshes"] + original["objects"] if "nodeIndex" in row}
             return {"id": item_id, "position": actual, "relatedPositions": related,
                     "pendingCount": self.pending_count(), "levelPendingCount": len(state["edits"]),
-                    "canUndo": bool(state["undo"]), "canRedo": bool(state["redo"]),
+                    **self._combined_history(),
                     "warning": MESH_WARNING if item_id.startswith("mesh-") else None}
 
     def _history(self, level, undo):
@@ -899,7 +919,7 @@ class StudioBackend(ProjectAssets):
             state = self._state(level)
             source, target = (state["undo"], state["redo"]) if undo else (state["redo"], state["undo"])
             if not source:
-                return {"changed": False, "pendingCount": self.pending_count(), "levelPendingCount": len(state["edits"]), "canUndo": bool(state["undo"]), "canRedo": bool(state["redo"])}
+                return {"changed": False, "pendingCount": self.pending_count(), "levelPendingCount": len(state["edits"]), **self._combined_history()}
             row = source[-1]
             if isinstance(row, dict) and row.get("operation") == "assets":
                 return self._asset_history(level, undo)
@@ -948,31 +968,34 @@ class StudioBackend(ProjectAssets):
             target.append(source.pop())
             self.save()
             return {"changed": True, "id": row["id"], "position": point, "pendingCount": self.pending_count(), "levelPendingCount": len(state["edits"]),
-                    "canUndo": bool(state["undo"]), "canRedo": bool(state["redo"])}
+                    **self._combined_history()}
 
     def undo(self, level_id):
-        return self._history(level_id, True)
+        return self._global_history(level_id, True)
 
     def redo(self, level_id):
-        return self._history(level_id, False)
+        return self._global_history(level_id, False)
 
     def pending_count(self, level_id=None):
         if level_id is not None:
             state = self._project["levels"].get(level_id, {})
             return len(state.get("edits", {})) + len(state.get("assetEdits", {}))
-        return sum(len(row.get("edits", {})) + len(row.get("assetEdits", {})) for row in self._project["levels"].values())
+        return (sum(len(row.get("edits", {})) + len(row.get("assetEdits", {}))
+                    for level, row in self._project["levels"].items() if self._level_active(level))
+                + self.level_management()['changeCount'])
 
     def preview_count(self, level_id=None):
         def count(state):
             return (len(state.get("previewEdits", {})) + sum(len(state.get(key, {})) for key in ("models", "textures", "modelOverrides", "textureOverrides")))
         if level_id is not None:
             return count(self._project["levels"].get(level_id, {}))
-        return sum(count(row) for row in self._project["levels"].values())
+        return sum(count(row) for level, row in self._project["levels"].items() if self._level_active(level))
 
     def project_summary(self):
         with self._lock:
             return {"path": str(self.project_path), "sourceDir": str(self.source_dir),
                     "pendingCount": self.pending_count(), "previewCount": self.preview_count(),
+                    "levelManagement": self.level_management(), **self._combined_history(),
                     "editedLevels": [level for level, row in self._project["levels"].items() if self.pending_count(level) or self.preview_count(level)],
                     "levels": {level: {"pendingCount": self.pending_count(level), "previewCount": self.preview_count(level),
                                        "lockedCount": sum(bool(value) for value in row.get("locks", {}).values()),
@@ -980,10 +1003,34 @@ class StudioBackend(ProjectAssets):
 
     def save(self):
         with self._lock:
-            self.project_dir.mkdir(parents=True, exist_ok=True)
-            temporary = self.project_path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(self._project, ensure_ascii=False, indent=2, allow_nan=False), "utf-8")
-            temporary.replace(self.project_path)
+            # Ordering may clear redo across several levels. Restore those
+            # shared lists in place if writing fails, so callers can roll back
+            # their own operation without losing another level's history.
+            missing = object()
+            serial = self._project.get('historySerial', missing)
+            stacks = [state[key] for state in self._project['levels'].values() for key in ('undo', 'redo')]
+            stacks += [self._level_manager()[key] for key in ('undo', 'redo')]
+            checkpoint = [(stack, list(stack), [(row, row.get('_seq', missing))
+                           for row in stack if isinstance(row, dict)]) for stack in stacks]
+            try:
+                self._record_history_order()
+                self.project_dir.mkdir(parents=True, exist_ok=True)
+                temporary = self.project_path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(self._project, ensure_ascii=False, indent=2, allow_nan=False), "utf-8")
+                temporary.replace(self.project_path)
+            except Exception:
+                for stack, entries, sequences in checkpoint:
+                    stack[:] = entries
+                    for row, sequence in sequences:
+                        if sequence is missing:
+                            row.pop('_seq', None)
+                        else:
+                            row['_seq'] = sequence
+                if serial is missing:
+                    self._project.pop('historySerial', None)
+                else:
+                    self._project['historySerial'] = serial
+                raise
             return {"path": str(self.project_path), "pendingCount": self.pending_count(), "previewCount": self.preview_count()}
 
     def export(self):
@@ -991,6 +1038,8 @@ class StudioBackend(ProjectAssets):
         with self._lock:
             prepared, edits, reports, warnings, preview_levels = [], [], [], [], {}
             for level, state in self._project["levels"].items():
+                if not self._level_active(level):
+                    continue
                 if state.get("previewEdits"):
                     original, _ = self._load(level)
                     preview_levels[level] = {"sourceSha256": _hash(original), "overrides": {}}
@@ -1061,7 +1110,12 @@ class StudioBackend(ProjectAssets):
                 reports.append({"level": level, "sourceSha256": _hash(source), "exportSha256": _hash(buffer),
                                 "sourceBytes": len(source), "exportBytes": len(buffer), "changedBytes": changed_bytes,
                                 "edits": self.pending_count(level), "allowedOffsets": sorted(allowed_offsets)})
-            has_assets = any(any(state.get(key) for key in ("models", "modelOverrides", "textures", "textureOverrides", "assetEdits")) for state in self._project["levels"].values())
+            native_files, iso_plan = self._prepare_level_export(dict(prepared))
+            prepared = list(native_files.items())
+            has_assets = any(any(state.get(key) for key in ("models", "modelOverrides", "textures", "textureOverrides", "assetEdits"))
+                             for level, state in self._project["levels"].items() if self._level_active(level))
+            if self.level_management()['changeCount']:
+                warnings.append(LEVEL_WARNING)
             if not prepared and not preview_levels and not has_assets:
                 raise ValueError("Aucune modification à exporter.")
             folder = self.exports_dir / (datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid4().hex[:8])
@@ -1069,7 +1123,10 @@ class StudioBackend(ProjectAssets):
                 raise ValueError("Le dump source ne peut pas être une destination d’export.")
             (folder / "gamedata").mkdir(parents=True, exist_ok=False)
             for level, data in prepared:
-                (folder / "gamedata" / f"{level}.xbr").write_bytes(data)
+                destination = folder / "gamedata" / f"{level}.xbr"
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+            (folder / 'iso-plan.json').write_text(json.dumps(iso_plan, ensure_ascii=False, indent=2), 'utf-8')
             self._export_assets(folder, preview_levels)
             if self.preview_count() and has_assets:
                 from asset_editing import ASSET_WARNING
@@ -1084,7 +1141,9 @@ class StudioBackend(ProjectAssets):
                 (folder / "scene-overrides.json").write_text(json.dumps(overrides, ensure_ascii=False, indent=2, allow_nan=False), "utf-8")
             report = {"createdUtc": datetime.now(timezone.utc).isoformat(), "sourceUnchanged": True,
                       "files": reports, "warnings": warnings, "pendingCount": self.pending_count(), "previewCount": self.preview_count(),
-                      "instructions": "Les XBR modifiés se trouvent dans gamedata. Intégrez-les dans une copie complète du dump ou utilisez xbr_edits du mod.json avec le toolkit pour reconstruire une ISO."}
+                      "levelManagement": self.level_management(), "gameFiles": iso_plan['gameFiles'],
+                      "removedFiles": iso_plan['removedFiles'],
+                      "instructions": "Utilisez Niveaux → Construire une ISO du mod avec ce dossier exporté et votre ISO source correspondante. iso-plan.json décrit les fichiers, le registre et les suppressions nécessaires; l’ISO d’origine est conservée."}
             if preview_levels:
                 report["instructions"] += " Les transformations dans scene-overrides.json concernent seulement l’éditeur et ne sont pas appliquées au jeu."
             (folder / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False), "utf-8")

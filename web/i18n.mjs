@@ -1,5 +1,6 @@
 // UI translation only. Identifiers, source names, file paths and game data
 // remain verbatim; switching language never changes the imported game files.
+import { levelMessages } from './level-messages.mjs';
 export const languageStorageKey = 'azurik-studio-language';
 const supported = new Set(['fr', 'en']);
 let language = 'fr';
@@ -12,6 +13,7 @@ const attributeSources = new WeakMap();
 // French is the existing UI's canonical language. Exact entries keep source
 // names safe: we never use unrestricted word substitutions on arbitrary data.
 export const messages = Object.freeze({
+  ...levelMessages,
   'Coordonnées du modèle': 'Model coordinates',
   'Coordonnées locales du modèle': 'Local model coordinates',
   'Coordonnées du niveau (monde)': 'Level coordinates (world)',
@@ -569,6 +571,7 @@ const frenchKeys = Object.freeze({
 // Full messages or narrowly delimited UI patterns. Captured source names and
 // paths pass through unchanged. The reverse patterns restore French on switch.
 const templates = [
+  ['{1} NIVEAUX', '{1} LEVELS'],
   ['Sélectionnez aussi le tampon du modèle : {1}', 'Also select the model buffer: {1}'],
   ['{1} : données invalides ou trop volumineuses.', '{1}: invalid or oversized data.'],
   ['{1} modifications du jeu · {2} modifications d’aperçu', '{1} game changes · {2} preview changes'],

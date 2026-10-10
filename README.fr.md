@@ -1,10 +1,20 @@
-# Azurik Level Studio 2.0.1
+# Azurik Level Studio 2.1.0
 
-**Version 2.0.1** de l’éditeur de niveaux d’**Azurik: Rise of Perathia**, pour votre propre copie du jeu Xbox.
+**Version 2.1.0** de l’éditeur de niveaux d’**Azurik: Rise of Perathia**, pour votre propre copie du jeu Xbox.
 
-[Télécharger pour Windows](https://github.com/AzurikPerathia/Azurik-Level-Editor/releases/tag/v2.0.1) · [English guide](README.en.md) · [Illustrations](docs/SCREENSHOTS.md) · [Prochaine version](ROADMAP.md)
+[Télécharger pour Windows](https://github.com/Azurik-Modding-Hub/Azurik-Level-Editor/releases/tag/v2.1.0) · [English guide](README.en.md) · [Niveaux et construction ISO](docs/LEVELS_V21.md#français) · [Illustrations](docs/SCREENSHOTS.md) · [Feuille de route](ROADMAP.md)
 
 ![Menus de l’éditeur version 2.0.0](docs/screenshots/v2-editor-menus.jpg)
+
+## Nouveautés 2.1.0
+
+- **Menu Niveaux :** création d’un niveau natif depuis un modèle source propre, suppression d’un niveau du mod et restauration d’un niveau supprimé. La copie reprend géométrie, collisions et scripts d’origine ; elle ne reprend pas les modifications actuelles du projet. Ce n’est pas un compilateur de niveaux vides.
+- **Entrées compatibles :** remplacement d’un niveau d’origine par un clone du même modèle, pour conserver les identifiants des points d’entrée. Le sélecteur et la salle d’entraînement sont protégés.
+- **Historique global :** Ctrl Z et Ctrl Maj Z annulent/rétablissent une action dans l’ordre, y compris créations, suppressions, transformations et opérations d’assets. L’historique enregistré reste disponible après réouverture.
+- **Export natif :** nouveaux XBR, mise à jour du registre `gamedata/index/index.xbr` et plan `iso-plan.json` pour décrire ajouts, remplacements et suppressions.
+- **Construire une ISO du mod :** choix du dossier exporté, de l’ISO source correspondante et d’un nouveau chemin. Le logiciel met à jour les dépendances de préchargement `prefetch-lists.txt`, reconstruit les répertoires du disque et vérifie ses fichiers. L’ISO source et l’exécutable Xbox restent intacts.
+
+**État de validation :** contrôles structurels, tests sur archives/disques synthétiques et vérifications de fichiers isolées. Le chargement des nouveaux niveaux, des portails et des états de quête dans **Xemu reste à tester en jeu**. Scripts, collisions et identifiants natifs sont hérités du modèle. [Utilisation et limites](docs/LEVELS_V21.md#français).
 
 ## Correctif 2.0.1
 
@@ -31,17 +41,17 @@ Il s’agit **uniquement du cache Xbox** : **Clear Cache** dans xemu-dashboard o
 
 ## Ouvrir le logiciel
 
-1. Téléchargez **Azurik-Level-Studio-2.0.1-Windows-x64.zip** et extrayez-le.
+1. Téléchargez **Azurik-Level-Studio-2.1.0-Windows-x64.zip** et extrayez-le.
 2. Double-cliquez sur **Azurik Level Studio.exe**. L’exécutable inclut Python et les dépendances : aucune installation de Python n’est nécessaire.
 3. Cliquez sur **Importer un ISO**, choisissez votre ISO/XISO Xbox d’Azurik ou saisissez son chemin. Attendez l’import, puis choisissez le niveau.
 4. Sélectionnez un élément, déverrouillez-le si nécessaire, puis déplacez-le, tournez-le ou changez son échelle avec les outils ou les champs précis.
-5. **Enregistrer** conserve le projet. **Exporter le mod** crée de nouveaux XBR avec un rapport, à intégrer dans une copie du jeu pour tester.
+5. **Enregistrer** conserve le projet. **Exporter le mod** crée les nouveaux XBR, le registre si nécessaire, un plan ISO et un rapport. **Niveaux → Construire une ISO du mod**, également proposé après l’export, crée un disque de test séparé depuis cet export et votre ISO source correspondante.
 
 Dans les sources, l’exécutable est dans `windows/Azurik Level Studio.exe`. **Ouvrir Azurik Level Studio.bat** permet aussi de le lancer ; les lanceurs `.cmd` et PowerShell sont conservés. Le logiciel ouvre sa propre fenêtre. Windows x64, .NET Framework et le [runtime WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) sont requis ; ce dernier est généralement installé.
 
 La version compilée conserve projets, imports, cache, exports et journaux dans **`%LOCALAPPDATA%\AzurikLevelStudio`**. Elle réutilise un serveur de même version ; un serveur plus ancien reste ouvert et la nouvelle version utilise un port distinct. En mode source, les données restent dans le dossier du code.
 
-Sauvegardez une copie de votre projet avant les opérations d’assets V2, qui mettent son format à jour en version 2. Fermez l’ancien éditeur avant de modifier le même projet.
+Sauvegardez une copie de votre projet avant une mise à jour. Les opérations d’assets utilisent le format de projet 2 ; la gestion des niveaux utilise le format 3. Les projets existants de format 1 et 2 peuvent être ouverts. Fermez l’ancien éditeur avant de modifier le même projet.
 
 ## Fonctionnalités
 
@@ -53,6 +63,7 @@ Sauvegardez une copie de votre projet avant les opérations d’assets V2, qui m
 - Verrouillage individuel ou du niveau, enregistré et contrôlé par le serveur.
 - Bibliothèque d’assets avec recherche, séquences et cubemaps ; export trié PNG/glTF avec l’outil fourni.
 - Import ISO local, progression, validation et projets séparés.
+- Gestion native des niveaux et construction d’ISO : clones propres, entrées compatibles, suppressions réversibles et nouveau disque vérifié séparément.
 - Captures PNG de la vue enregistrées dans le projet.
 - Véritable exécutable Windows, icône, version et empreinte SHA-256.
 
@@ -75,7 +86,9 @@ Cliquez dans la vue avant de naviguer. Les lettres suivent le clavier, y compris
 
 Le dump et l’ISO d’origine sont lus sans modification. Les placements vérifiés sont exportés dans de **nouveaux XBR** avec empreintes et rapport. Les autres transformations sont signalées **aperçu seulement**, enregistrées séparément dans `scene-overrides.json` et ne sont pas appliquées au jeu.
 
-Les collisions restent à leur position originale quand un décor est déplacé : vérifiez le résultat en jeu. La reconstruction automatique d’une ISO complète n’est pas une fonction de l’éditeur 2.0.0.
+Les collisions restent à leur position originale quand un décor est déplacé : vérifiez le résultat en jeu. La 2.1.0 peut construire une nouvelle ISO depuis le mod exporté et l’image d’origine correspondante. Le rapport vérifie la structure et les fichiers du disque, puis indique explicitement `imageTestedInGame: false`. Une construction réussie ne certifie pas le fonctionnement du jeu.
+
+Un nouveau niveau conserve géométrie, collisions, scripts, identifiants de portails et de départ, ainsi que les liens aux états de quête du modèle. Sa famille affichée est un classement dans le catalogue. La création n’ajoute pas automatiquement un portail ou une entrée de campagne. Pour le tester par une entrée existante, supprimez son niveau d’origine du mod en choisissant un clone de ce même modèle comme remplacement. Le remappage entre modèles différents et la création arbitraire de niveaux vides ne sont pas disponibles. [Guide des niveaux](docs/LEVELS_V21.md#français).
 
 Le rendu utilise les données du jeu sans exécuter tout le moteur Xbox. Personnages en pose de liaison, scripts, animations de squelette, particules, éclairages ponctuels et certains effets restent partiels. Ciel et chemin vérifié du brouillard/reflet à deux couches d’A5 sont pris en charge. Un rendu identique pixel par pixel n’est pas annoncé.
 
@@ -87,4 +100,4 @@ Pour compiler : Windows x64, Python 3.11+ et **Build Windows.ps1**. Tests : `pyt
 
 L’import, le remplacement et la duplication sont disponibles dans la 2.0.0 avec les limites d’export décrites dans [le guide V2](docs/EDITING_V2.md). Les ajouts arbitraires dans le jeu et les collisions restent dans [ROADMAP.md](ROADMAP.md).
 
-[Dépôt dédié](https://github.com/AzurikPerathia/Azurik-Level-Editor) · [Expensions](https://github.com/AzurikPerathia/Elemental_Games_Modding---Expensions) · [Pull request en anglais](https://github.com/JTCPP/Elemental_Games_Modding/pull/2)
+[Dépôt dédié](https://github.com/Azurik-Modding-Hub/Azurik-Level-Editor) · [Expensions](https://github.com/Azurik-Modding-Hub/Elemental_Games_Modding---Expensions) · [Pull request en anglais](https://github.com/JTCPP/Elemental_Games_Modding/pull/2)

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.0 — 2026-10-10
+
+- Add a bilingual Levels menu: clone a clean native source template, remove a level from the mod, and restore removed levels.
+- Redirect existing level entries only to a retained clone of the same template; protect the selector and training room. Geometry, collisions, scripts and native IDs remain inherited.
+- Preserve global Ctrl Z / Ctrl Shift Z chronology across catalog, transform and asset operations, including saved history after restarting and rollback on failed catalog saves.
+- Export native XBR registration changes, compatible level aliases and an explicit `iso-plan.json` with checksums and removals.
+- Build a separate mod ISO with native prefetch dependencies, rebuilt directories and file readback verification; preserve the source ISO and Xbox executable.
+- Document structural/isolated validation separately from Xemu gameplay testing, which remains pending for new levels and inherited quest-state behavior. Empty-level compilation and cross-template spawn remapping are not included.
+
 ## 2.0.1 — 2026-10-10
 
 - Cache unchanged instance lighting, reflection transforms and transparent bounds without reducing scene detail or textures.
