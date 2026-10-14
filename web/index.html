@@ -78,6 +78,12 @@
       <button data-action="importTexture"><span>Importer une texture PNG</span></button>
       <button data-action="replaceTexture"><span>Remplacer une texture du niveau</span></button>
     </div></details>
+    <details class="editor-menu"><summary>Évènements</summary><div class="menu-popup">
+      <button data-action="createEvent"><span>Créer une zone de dialogue</span></button>
+      <button data-action="manageEvents"><span>Gérer les évènements</span></button>
+      <button data-action="importEvents"><span>Importer des évènements JSON</span></button>
+      <button data-action="customEvent"><span>Importer un texte personnalisé</span></button>
+    </div></details>
     <details class="editor-menu"><summary>Vue</summary><div class="menu-popup">
       <button data-action="freeCamera"><span>Caméra libre · déplacement et regard</span><kbd>Tab</kbd></button>
       <button data-action="orbitCamera"><span>Caméra orbitale</span></button>
@@ -147,6 +153,7 @@
         <button id="resetTransformBtn" class="text-button"><svg><use href="#i-undo"/></svg>Restaurer rotation et échelle</button>
         <div id="gizmoNotice" class="gizmo-notice" hidden></div>
         <div id="selectionWarning" class="notice amber"></div>
+        <div id="eventInspectorActions" class="event-inspector-actions" hidden><button id="editEventBtn" class="button secondary full">Modifier cet évènement</button></div>
         <div class="panel-divider"></div>
         <div class="section-heading"><h2>Données source</h2><svg class="heading-icon"><use href="#i-info"/></svg></div>
         <dl id="sourceDetails" class="source-details"></dl>

@@ -9,6 +9,7 @@ import { parseModelFiles, readPngFile } from '/asset-import.mjs';
 import { decodeSceneTransport } from '/scene-transport.mjs';
 import { createLevelManager } from '/levels.js';
 import { catalogSection, catalogEntries, catalogView } from '/level-catalog.mjs';
+import { createEventManager, createEventZone } from '/events.mjs';
 
 const $ = id => document.getElementById(id);
 const number = value => formatNumber(Math.round(Number(value) || 0));
@@ -18,7 +19,7 @@ const icon = name => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const vector = array => new THREE.Vector3(...(Array.isArray(array) ? array : [0, 0, 0]));
 const samePosition = (a, b) => a.every((n, i) => Math.abs(n - b[i]) < 0.0001);
 const sourceOffset = value => typeof value === 'number' ? `0x${value.toString(16).toUpperCase()}` : (value ?? '—');
-const isEditable = item => !!item && !item.locked && (item.previewEditable || (item.editable !== false && state.data?.capabilities?.[item.kind === 'mesh' ? 'meshTranslation' : 'entityTranslation'] !== false));
+const isEditable = item => !!item && !item.locked && (item.kind === 'event' || item.previewEditable || (item.editable !== false && state.data?.capabilities?.[item.kind === 'mesh' ? 'meshTranslation' : 'entityTranslation'] !== false));
 const groupLabel = value => translate(({ air: 'Domaine de l’Air', earth: 'Domaine de la Terre', fire: 'Domaine du Feu', water: 'Domaine de l’Eau', life: 'Domaine de la Vie', perathia: 'Perathia', death: 'Domaine de la Mort', cinematic: 'Cinématiques', other: 'Autres niveaux' })[value] || value || 'Niveaux du jeu');
 const isWorldSpace = item => !!(item?.worldPositionVerified || item?.coordinateSpace === 'world' || item?.instance);
 const isTransformEditable = (item, mode) => !!item?.localRotation && !!item?.localScale && !item.locked && (item.previewEditable || (item.editable !== false && state.data?.capabilities?.[`${item.kind === 'mesh' ? 'mesh' : 'entity'}${mode === 'rotate' ? 'Rotation' : 'Scale'}`] !== false && Number.isFinite(item.editBinding?.[mode === 'rotate' ? 'rotationOffset' : 'scaleOffset'])));
@@ -71,7 +72,9 @@ scene.add(gizmoHelper);
 
 const world = new THREE.Group();
 const entityGroup = new THREE.Group();
-scene.add(world, entityGroup);
+const eventGroup = new THREE.Group();
+const eventPreviewGroup = new THREE.Group();
+scene.add(world, entityGroup, eventGroup, eventPreviewGroup);
 let collisionMesh = null;
 let grid = null;
 let selectionBox = null;
@@ -135,7 +138,7 @@ async function api(path, body, options = {}) {
   const headers = { ...options.headers, 'X-Studio-Geometry': 'packed-v1' };
   const response = await fetch(path, body === undefined ? { ...options, headers } : {
     ...options,
-    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    method: options.method || 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   let data;
   try { data = await response.json(); } catch { throw new Error(`Le serveur a renvoyé une réponse illisible (${response.status}).`); }
@@ -165,6 +168,7 @@ function updateActions() {
   transform.enabled = available;
   const editable = available && isEditable(state.items.get(state.selected));
   ['posX', 'posY', 'posZ', 'resetPositionBtn'].forEach(id => { $(id).disabled = !editable; });
+  if (state.items.get(state.selected)?.kind === 'event') $('resetPositionBtn').disabled = true;
   ['rotX', 'rotY', 'rotZ'].forEach(id => { $(id).disabled = !available || !isTransformEditable(state.items.get(state.selected), 'rotate'); });
   ['scaleX', 'scaleY', 'scaleZ'].forEach(id => { $(id).disabled = !available || !isTransformEditable(state.items.get(state.selected), 'scale'); });
   $('resetTransformBtn').disabled = !available || !(isTransformEditable(state.items.get(state.selected), 'rotate') || isTransformEditable(state.items.get(state.selected), 'scale'));
@@ -180,7 +184,8 @@ function updateActions() {
     importModel: available, replaceModel: available && selectedMesh && !state.items.get(state.selected)?.locked,
     importTexture: available, replaceTexture: available && !!state.data?.textures?.length, importIso: !state.loading && !state.busy && !state.importing,
     createLevel: available, deleteLevel: available && !state.catalog?.levels?.find(level => level.id === state.level)?.technical && state.catalog?.levels?.find(level => level.id === state.level)?.canClone !== false,
-    manageLevels: available, buildIso: available && !!state.exportDirectory };
+    manageLevels: available, buildIso: available && !!state.exportDirectory,
+    createEvent: available, manageEvents: available, importEvents: available, customEvent: available };
   document.querySelectorAll('[data-action]').forEach(button => { if (button.dataset.action in actions) button.disabled = !actions[button.dataset.action]; });
   $('importIsoBtn').disabled = state.loading || state.busy || state.importing;
   const selected = state.items.get(state.selected);
@@ -207,6 +212,7 @@ function cleanScene(reuseTextures = false) {
   [...world.children].forEach(object => disposeObject(object, false));
   [...skyWorld.children].forEach(object => disposeObject(object, false));
   [...entityGroup.children].forEach(object => { object.children.filter(child => !child.userData.model).forEach(child => child.material?.dispose()); disposeObject(object, false); });
+  [...eventGroup.children, ...eventPreviewGroup.children].forEach(object => disposeObject(object));
   if (collisionMesh) { disposeObject(collisionMesh); collisionMesh = null; }
   if (grid) { disposeObject(grid); grid = null; }
   if (!reuseTextures) { new Set(textureCache.values()).forEach(texture => texture.dispose()); textureCache.clear(); }
@@ -752,6 +758,7 @@ function buildScene(data, preserveCamera = false, restoreId = null) {
   updateActions();
   renderDirty = true;
   freeNavigation.syncFromCamera();
+  eventManager.refresh().then(() => { if (restoreId && state.items.get(restoreId)?.kind === 'event') selectItem(restoreId, true); }).catch(error => toast(error.message, true));
 }
 
 async function initialize() {
@@ -1129,6 +1136,7 @@ function renderHierarchy() {
   const allItems = [...state.items.values()];
   const matching = allItems.filter(item => (state.filter === 'all' || item.kind === state.filter) && matchesNodeFilter(item) && `${item.name} ${item.id} ${item.tag || ''} ${item.gameKind || ''} ${nodePath(item)}`.toLowerCase().includes(state.query));
   const groups = [
+    { matches: item => item.kind === 'event', label: 'Zones de dialogue', icon: 'pin' },
     { matches: item => item.kind === 'mesh' && isWorldSpace(item), label: 'Géométrie du niveau', icon: 'cube' },
     { matches: item => item.kind === 'mesh' && !isWorldSpace(item), label: 'Primitives de modèles', icon: 'cube' },
     { matches: item => item.kind === 'entity', label: 'Repères d’entités', icon: 'pin' },
@@ -1179,7 +1187,7 @@ function selectItem(id, force = false) {
   if (item) {
     if (!item.visible) { item.visible = true; applyItemVisibility(item); visibilityChanged = true; }
     configureGizmo(item);
-    if (item.kind === 'mesh' || item.model) {
+    if (item.kind === 'mesh' || item.kind === 'event' || item.model) {
       selectionBox = new THREE.BoxHelper(item.object, 0x7fe0cc);
       selectionBox.material.transparent = true; selectionBox.material.opacity = 0.65;
       selectionBox.material.depthTest = false;
@@ -1202,9 +1210,26 @@ function selectItem(id, force = false) {
 
 function renderInspector() {
   const item = state.items.get(state.selected);
+  $('eventInspectorActions').hidden = item?.kind !== 'event';
   $('inspectorEmpty').hidden = !!item;
   $('inspectorContent').hidden = !item;
   if (!item) return;
+  if (item.kind === 'event') {
+    $('selectedName').textContent = item.name || item.id;
+    $('selectedType').textContent = translate('ZONE DE DIALOGUE');
+    $('selectedIcon').querySelector('use').setAttribute('href', '#i-pin');
+    $('inspectorSpace').textContent = translate('MONDE');
+    $('selectedTag').textContent = translate('Évènement'); $('selectedId').textContent = item.id;
+    refreshPositionFields();
+    $('selectionWarning').textContent = translate('Zone invisible et non bloquante dans le jeu. Déplacez le repère ou ouvrez ses réglages pour modifier le dialogue et ses conditions.');
+    const details = [['Dialogue', item.popupBase || translate('Texte personnalisé')], ['Dimensions', item.size.map(round).join(' × ')],
+      ['Déclenchement', translate(item.condition === 'day' ? 'Pendant le jour' : item.condition === 'night' ? 'Pendant la nuit' : 'À toute heure')],
+      ['Fréquence', translate(item.once ? 'Une fois par chargement du niveau' : 'À chaque activation de la zone')],
+      ['Protection', translate(item.locked ? 'Verrouillé' : 'Déverrouillé')]];
+    $('sourceDetails').replaceChildren();
+    for (const [key, value] of details) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = translate(key); dd.textContent = String(value); dd.dataset.i18nIgnore = ''; $('sourceDetails').append(dt, dd); }
+    return;
+  }
   $('selectedName').textContent = item.name || item.id;
   $('selectedType').textContent = item.kind === 'mesh' ? isWorldSpace(item) ? 'GÉOMÉTRIE DU NIVEAU' : 'PRIMITIVE DE MODÈLE' : 'REPÈRE D’ENTITÉ';
   $('inspectorSpace').textContent = isWorldSpace(item) ? 'MONDE' : 'SOURCE';
@@ -1463,6 +1488,7 @@ function showMaterial(entry) {
 
 function openDialog(title, eyebrow = 'AZURIK LEVEL STUDIO') {
   cleanDialogPreview();
+  [...eventPreviewGroup.children].forEach(object => disposeObject(object));
   $('dialogTitle').textContent = title; $('dialogEyebrow').textContent = eyebrow; $('dialogBody').replaceChildren();
   if (!$('infoDialog').open) $('infoDialog').showModal();
   freeNavigation.reset(); orbit.enabled = !state.fly && !transform.dragging;
@@ -1604,7 +1630,8 @@ async function commitPosition(id, target, previous = null) {
   item.object.position.copy(vector(target)); item.object.updateMatrixWorld(); selectionBox?.update();
   state.busy = true; updateActions();
   try {
-    const result = await api('/api/move', { level: currentLevel, id, position: target });
+    const result = item.kind === 'event' ? await eventManager.patch(id, { position: target }) : await api('/api/move', { level: currentLevel, id, position: target });
+    if (item.kind === 'event') { selectItem(id, true); return; }
     item.position = result.position || target;
     item.object.position.copy(vector(item.position));
     for (const [relatedId, position] of Object.entries(result.relatedPositions || {})) {
@@ -1787,6 +1814,7 @@ async function changeLock(locked, all = false) {
   const selected = state.selected;
   state.busy = true; transform.detach(); updateActions();
   try {
+    if (!all && state.items.get(selected)?.kind === 'event') { await eventManager.patch(selected, { locked }); selectItem(selected, true); return; }
     const result = await api('/api/lock', { level: state.level, ...(all ? { all: true } : { id: selected }), locked });
     buildScene(result.scene || result, true, selected);
     state.unsaved = true;
@@ -2107,7 +2135,7 @@ $('helpBtn').addEventListener('click', () => {
   const note = document.createElement('p'); note.className = 'dialog-note'; note.textContent = 'Cliquez dans la vue 3D pour activer les déplacements. Les raccourcis de navigation sont suspendus dans les champs de texte et les fenêtres de dialogue.'; body.append(note);
 });
 $('dialogClose').addEventListener('click', () => $('infoDialog').close());
-$('infoDialog').addEventListener('close', () => { cleanDialogPreview(); renderer.domElement.focus({ preventScroll: true }); renderDirty = true; });
+$('infoDialog').addEventListener('close', () => { cleanDialogPreview(); [...eventPreviewGroup.children].forEach(object => disposeObject(object)); renderer.domElement.focus({ preventScroll: true }); renderDirty = true; });
 $('infoDialog').addEventListener('click', event => { if (event.target === $('infoDialog')) { const bounds = $('infoDialog').getBoundingClientRect(); if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) $('infoDialog').close(); } });
 
 window.addEventListener('keydown', async event => {
@@ -2151,6 +2179,33 @@ $('importIsoBtn').addEventListener('click', sourceImport.show);
 const levelManager = createLevelManager({ api, openDialog, closeDialog: () => $('infoDialog').close(), toast, translate,
   getContext: () => ({ level: state.level, catalog: state.catalog, exportDirectory: state.exportDirectory,
     sourceIsoPath: state.catalog?.sourceIsoPath }), onChanged: refreshLevelCatalog });
+function syncEventItems(events, result = {}) {
+  const selected = state.selected, wasEvent = state.items.get(selected)?.kind === 'event';
+  if (wasEvent) { transform.detach(); if (selectionBox) { disposeObject(selectionBox); selectionBox = null; } }
+  for (const [id, item] of state.items) if (item.kind === 'event') state.items.delete(id);
+  [...eventGroup.children].forEach(object => disposeObject(object));
+  for (const entry of events) {
+    if (!entry.id || !Array.isArray(entry.position) || !Array.isArray(entry.size)) continue;
+    const object = createEventZone(THREE, entry); eventGroup.add(object);
+    state.items.set(entry.id, { ...entry, object, kind: 'event', gameKind: 'event', tag: 'dialogue-zone', coordinateSpace: 'world',
+      worldPositionVerified: true, originalPosition: [...entry.position], editable: true, lockedExplicitly: !!entry.locked, visible: true });
+  }
+  eventGroup.updateMatrixWorld(true);
+  if (result.pendingCount !== undefined) state.pending = result.pendingCount;
+  if (result.history) { state.canUndo = !!result.history.canUndo; state.canRedo = !!result.history.canRedo; }
+  renderHierarchy(); $('sceneCount').textContent = number(state.items.size); renderDirty = true;
+  if (wasEvent) selectItem(state.items.has(selected) ? selected : null, true);
+  updateActions();
+}
+const eventManager = createEventManager({ api, openDialog, closeDialog: () => $('infoDialog').close(), toast, translate,
+  getContext: () => ({ level: state.level, position: state.items.get(state.selected)?.object.position.toArray() || orbit.target.toArray() }),
+  onLoaded: syncEventItems,
+  onChanged: result => { state.unsaved = true; state.pending = result.pendingCount ?? state.pending + 1;
+    state.canUndo = result.history?.canUndo ?? result.canUndo ?? true; state.canRedo = result.history?.canRedo ?? result.canRedo ?? false; updateActions(); renderDirty = true; },
+  onSelect: (id, frame = false) => { selectItem(id, true); if (frame && state.items.has(id)) frameObject(state.items.get(id).object); },
+  onPreview: entry => { [...eventPreviewGroup.children].forEach(object => disposeObject(object)); const object = createEventZone(THREE, { ...entry, id: '__event-preview', name: translate('Aperçu de la zone') }); eventPreviewGroup.add(object); renderDirty = true; },
+});
+$('editEventBtn').addEventListener('click', () => { if (state.items.get(state.selected)?.kind === 'event') eventManager.showEdit(state.selected); });
 const menuActions = {
   importIso: sourceImport.show, save: saveProject, export: exportMod, undo: () => historyAction('undo'), redo: () => historyAction('redo'),
   duplicate: duplicateSelection, delete: deleteAddition, resetLevel: showResetLevel,
@@ -2160,6 +2215,7 @@ const menuActions = {
   frameAll: () => frameObject(), viewSettings: showViewSettings, help: () => $('helpBtn').click(),
   createLevel: levelManager.showCreate, deleteLevel: () => levelManager.showDelete(state.level),
   manageLevels: levelManager.showManage, buildIso: () => levelManager.showBuildIso(),
+  createEvent: eventManager.showCreate, manageEvents: eventManager.showManage, importEvents: eventManager.showImport, customEvent: eventManager.showCustom,
 };
 const closeMenus = () => document.querySelectorAll('.editor-menu[open]').forEach(menu => { menu.open = false; });
 document.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', () => {

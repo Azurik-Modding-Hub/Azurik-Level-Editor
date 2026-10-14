@@ -326,7 +326,7 @@ class ProjectLevels:
         if created or deleted:
             index_path = self.gamedata_dir / 'index/index.xbr'
             original_index = index_path.read_bytes()
-            index = read_index(original_index)
+            index = read_index(files.get('index/index', original_index))
             indexed = {(row['tag'], row['key']): row['archive'].casefold() for row in index}
             add, remove, aliases = [], [], {}
             for level, record in created.items():
@@ -362,7 +362,7 @@ class ProjectLevels:
                 target = next((row['key'] for row in named_resources(payload) if row['tag'] == 'levl'), None)
                 files[level] = alias_level(payload, sorted(set(keys)), target_key=target)
                 add.extend({'key': key, 'tag': 'levl', 'archive': level + '.xbr'} for key in sorted(set(keys)))
-            files['index/index'] = update_index(original_index, add=add, remove=remove)
+            files['index/index'] = update_index(files.get('index/index', original_index), add=add, remove=remove)
         for level, payload in sorted(files.items()):
             original = self.gamedata_dir / (level + '.xbr')
             plan['gameFiles'].append({'path': 'gamedata/' + level + '.xbr', 'sha256': sha(payload),

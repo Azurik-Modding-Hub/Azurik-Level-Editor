@@ -20,6 +20,7 @@ from uuid import uuid4
 from studio_paths import ASSET_ROOT, DATA_ROOT
 from project_assets import ProjectAssets
 from project_levels import ProjectLevels, LEVEL_WARNING
+from project_events import ProjectEvents
 
 STUDIO_ROOT = DATA_ROOT
 
@@ -239,7 +240,7 @@ def scan_objects(data: bytes) -> list[dict]:
     return objects
 
 
-class StudioBackend(ProjectLevels, ProjectAssets):
+class StudioBackend(ProjectEvents, ProjectLevels, ProjectAssets):
     """Thread-safe projects; all source bytes stay read-only throughout."""
     def __init__(self, source_dir=DEFAULT_SOURCE, project_dir=None, exports_dir=None, toolkit_dir=DEFAULT_TOOLKIT, texture_dir=None):
         self.source_dir = Path(source_dir).resolve()
@@ -689,13 +690,16 @@ class StudioBackend(ProjectLevels, ProjectAssets):
                     items = [other for other in scene["meshes"] + scene["objects"]
                              if other["id"] == item_id or other.get("editBinding", {}).get("transformNode") == node]
             locks = self._state(level)["locks"]
+            if all_items:
+                for event in self._state(level).get('events', {}).values():
+                    event['locked'] = locked
             for item in items:
                 if locked:
                     locks[item["id"]] = True
                 else:
                     locks.pop(item["id"], None)
             self.save()
-            return {"locked": locked, "count": len(items), "scene": self.get_scene(level)}
+            return {"locked": locked, "count": len(items) + (len(self._state(level).get('events', {})) if all_items else 0), "scene": self.get_scene(level)}
 
     def _validated_preview(self, level, item_id, record):
         item = self._find_item(level, item_id)
@@ -921,6 +925,8 @@ class StudioBackend(ProjectLevels, ProjectAssets):
             if not source:
                 return {"changed": False, "pendingCount": self.pending_count(), "levelPendingCount": len(state["edits"]), **self._combined_history()}
             row = source[-1]
+            if isinstance(row, dict) and row.get("operation") == "events":
+                return self._event_history(level, undo)
             if isinstance(row, dict) and row.get("operation") == "assets":
                 return self._asset_history(level, undo)
             if not isinstance(row, dict) or not isinstance(row.get("id"), str) or "before" not in row or "after" not in row:
@@ -979,8 +985,8 @@ class StudioBackend(ProjectLevels, ProjectAssets):
     def pending_count(self, level_id=None):
         if level_id is not None:
             state = self._project["levels"].get(level_id, {})
-            return len(state.get("edits", {})) + len(state.get("assetEdits", {}))
-        return (sum(len(row.get("edits", {})) + len(row.get("assetEdits", {}))
+            return len(state.get("edits", {})) + len(state.get("assetEdits", {})) + len(state.get("events", {}))
+        return (sum(len(row.get("edits", {})) + len(row.get("assetEdits", {})) + len(row.get("events", {}))
                     for level, row in self._project["levels"].items() if self._level_active(level))
                 + self.level_management()['changeCount'])
 
@@ -1110,7 +1116,17 @@ class StudioBackend(ProjectLevels, ProjectAssets):
                 reports.append({"level": level, "sourceSha256": _hash(source), "exportSha256": _hash(buffer),
                                 "sourceBytes": len(source), "exportBytes": len(buffer), "changedBytes": changed_bytes,
                                 "edits": self.pending_count(level), "allowedOffsets": sorted(allowed_offsets)})
-            native_files, iso_plan = self._prepare_level_export(dict(prepared))
+            native_files, event_reports = self._prepare_event_export(dict(prepared))
+            native_files, iso_plan = self._prepare_level_export(native_files)
+            if event_reports:
+                by_level = {row['level']: row for row in reports}
+                for level, payload in native_files.items():
+                    original_path = self.gamedata_dir / (level + '.xbr')
+                    source = original_path.read_bytes() if original_path.is_file() else b''
+                    record = by_level.setdefault(level, {'level':level,'changedBytes':None,'edits':self.pending_count(level)})
+                    record.update(sourceSha256=_hash(source) if source else None,exportSha256=_hash(payload),
+                                  sourceBytes=len(source),exportBytes=len(payload))
+                reports = list(by_level.values())
             prepared = list(native_files.items())
             has_assets = any(any(state.get(key) for key in ("models", "modelOverrides", "textures", "textureOverrides", "assetEdits"))
                              for level, state in self._project["levels"].items() if self._level_active(level))
@@ -1128,6 +1144,9 @@ class StudioBackend(ProjectLevels, ProjectAssets):
                 destination.write_bytes(data)
             (folder / 'iso-plan.json').write_text(json.dumps(iso_plan, ensure_ascii=False, indent=2), 'utf-8')
             self._export_assets(folder, preview_levels)
+            if event_reports:
+                (folder / 'events.json').write_text(json.dumps({'format':'azurik-level-events','version':1,
+                    'events':self.events()['events']},ensure_ascii=False,indent=2,allow_nan=False),'utf-8')
             if self.preview_count() and has_assets:
                 from asset_editing import ASSET_WARNING
                 if ASSET_WARNING not in warnings:
@@ -1140,6 +1159,7 @@ class StudioBackend(ProjectLevels, ProjectAssets):
                              "warning": PREVIEW_WARNING, "levels": preview_levels}
                 (folder / "scene-overrides.json").write_text(json.dumps(overrides, ensure_ascii=False, indent=2, allow_nan=False), "utf-8")
             report = {"createdUtc": datetime.now(timezone.utc).isoformat(), "sourceUnchanged": True,
+                      "eventCompilation": event_reports,
                       "files": reports, "warnings": warnings, "pendingCount": self.pending_count(), "previewCount": self.preview_count(),
                       "levelManagement": self.level_management(), "gameFiles": iso_plan['gameFiles'],
                       "removedFiles": iso_plan['removedFiles'],
@@ -1148,7 +1168,8 @@ class StudioBackend(ProjectLevels, ProjectAssets):
                 report["instructions"] += " Les transformations dans scene-overrides.json concernent seulement l’éditeur et ne sont pas appliquées au jeu."
             (folder / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False), "utf-8")
             return {"path": str(folder), "directory": str(folder), "modPath": str(folder / "mod.json"), "reportPath": str(folder / "report.json"),
-                    "fileCount": len(prepared), "editCount": len(edits), **report}
+                    "fileCount": len(prepared), "editCount": len(edits) + sum(len(state.get('events', {}))
+                        for level, state in self._project['levels'].items() if self._level_active(level)), **report}
 
 
 EditorBackend = StudioBackend

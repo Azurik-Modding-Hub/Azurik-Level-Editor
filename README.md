@@ -1,5 +1,16 @@
 # Azurik Level Studio 2.1.1
 
+**Development preview: dialogue events (2.2.0-dev).** The preview branch adds an
+Events menu to import, position and resize player proximity zones, choose an
+existing popup, control day/night and repetition, or import a new silent TXT
+panel. Undo/redo, locks and native ISO export are supported. The Windows
+executable in this branch includes the preview. [Workflow and testing limits](EVENTS.md).
+
+![Dialogue event form in the development preview](docs/screenshots/events-preview.png)
+
+Real editor interface captured during an isolated local test. This illustrates
+the event form and original popup preview, not a completed in-game test.
+
 **Version 2.1.1** of the Azurik level editor: a local Windows application for viewing and editing levels from your own copy of **Azurik: Rise of Perathia** on the original Xbox.
 
 [Windows download](https://github.com/Azurik-Modding-Hub/Azurik-Level-Editor/releases/tag/v2.1.1) · [French guide](README.fr.md) · [Level management and ISO guide](docs/LEVELS_V21.md) · [Screenshots](docs/SCREENSHOTS.md) · [Roadmap](ROADMAP.md)

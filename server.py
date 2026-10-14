@@ -308,6 +308,14 @@ class StudioHandler(BaseHTTPRequestHandler):
                 with self.server.studio_lock:
                     self._json(self.server.require_backend().project_summary())
                 return
+            if route.path in ('/api/events', '/api/events/popup'):
+                with self.server.studio_lock:
+                    backend = self.server.require_backend()
+                    if route.path == '/api/events':
+                        self._json(backend.events())
+                    else:
+                        self._send(backend.popup_preview(query.get('base',[''])[0],query.get('language',['english'])[0]),'image/png')
+                return
             if route.path in ("/api/characters", "/api/character"):
                 with self.server.studio_lock:
                     library = self.server.characters()
@@ -380,7 +388,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         if path == "/api/import-iso-upload":
             self._upload_iso(length)
             return
-        maximum = (MAX_ASSET_REQUEST if path in ASSET_UPLOAD_ROUTES else
+        maximum = (MAX_ASSET_REQUEST if path in ASSET_UPLOAD_ROUTES or path.startswith('/api/events/') else
                    MAX_CAPTURE_REQUEST if path == "/api/capture" else MAX_REQUEST)
         if not 0 < length <= maximum:
             # Drain modest rejected bodies so Windows delivers the 413 response
@@ -426,7 +434,18 @@ class StudioHandler(BaseHTTPRequestHandler):
                 return
             with self.server.studio_lock:
                 backend = self.server.require_backend()
-                if path == '/api/build-iso':
+                if path in ('/api/events/add','/api/events/custom'):
+                    result = backend.add_event(payload, custom=path.endswith('/custom'))
+                elif path == '/api/events/import':
+                    result = backend.import_events(payload)
+                elif re.fullmatch(r'/api/events/evt_[A-Za-z0-9_]{1,40}', path):
+                    if self.command == 'PATCH':
+                        result = backend.update_event(path.rsplit('/',1)[1],payload)
+                    elif self.command == 'DELETE':
+                        result = backend.delete_event(path.rsplit('/',1)[1])
+                    else:
+                        raise ValueError('Utilisez PATCH ou DELETE pour cette zone.')
+                elif path == '/api/build-iso':
                     result = self.server.level_builds.start(payload.get('directory'), payload.get('input'),
                         payload.get('output'), backend.exports_dir, backend.source_dir)
                 elif path == '/api/levels/create':
@@ -502,6 +521,12 @@ class StudioHandler(BaseHTTPRequestHandler):
                 self._json(result if result is not None else {"ok": True})
         except Exception as exc:
             self._fail(exc)
+
+    def do_PATCH(self):
+        self.do_POST()
+
+    def do_DELETE(self):
+        self.do_POST()
 
     def _upload_iso(self, length):
         origin = self.headers.get("Origin", "")
