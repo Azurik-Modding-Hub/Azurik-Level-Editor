@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from asset_editing import ASSET_WARNING, MODEL_WARNING, TEXTURE_WARNING, geometry, name, native_plan, png_image
 
-ASSET_KEYS = ("edits", "previewEdits", "models", "modelOverrides", "textures", "textureOverrides", "assetEdits")
+ASSET_KEYS = ("edits", "previewEdits", "models", "modelOverrides", "textures", "textureOverrides", "assetEdits", "events")
 
 
 class ProjectAssets:
@@ -382,6 +382,8 @@ class ProjectAssets:
         source, target = (state["undo"], state["redo"]) if undo else (state["redo"], state["undo"])
         row = source[-1]
         snapshot = row.get("beforeState" if undo else "afterState")
+        if isinstance(snapshot, dict) and set(snapshot) == set(ASSET_KEYS) - {'events'}:
+            snapshot = {**snapshot, 'events': copy.deepcopy(state.get('events', {}))}
         if not isinstance(snapshot, dict) or set(snapshot) != set(ASSET_KEYS) or any(not isinstance(snapshot[k], dict) for k in ASSET_KEYS):
             raise ValueError("Historique de ressources invalide.")
         before = self._asset_snapshot(level)
@@ -419,7 +421,7 @@ class ProjectAssets:
         for level, state in self._project["levels"].items():
             if not self._level_active(level):
                 continue
-            custom = {key: copy.deepcopy(state.get(key, {})) for key in ASSET_KEYS if key not in ("edits", "previewEdits")}
+            custom = {key: copy.deepcopy(state.get(key, {})) for key in ASSET_KEYS if key not in ("edits", "previewEdits", "events")}
             if any(custom.values()):
                 preview_levels.setdefault(level, {"sourceSha256": state["sourceHash"], "overrides": {}})["assets"] = custom
                 for entries in custom.values():

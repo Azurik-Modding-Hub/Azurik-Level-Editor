@@ -1,6 +1,7 @@
 // UI translation only. Identifiers, source names, file paths and game data
 // remain verbatim; switching language never changes the imported game files.
 import { levelMessages } from './level-messages.mjs';
+import { eventMessages } from './event-messages.mjs';
 export const languageStorageKey = 'azurik-studio-language';
 const supported = new Set(['fr', 'en']);
 let language = 'fr';
@@ -14,6 +15,7 @@ const attributeSources = new WeakMap();
 // names safe: we never use unrestricted word substitutions on arbitrary data.
 export const messages = Object.freeze({
   ...levelMessages,
+  ...eventMessages,
   'Coordonnées du modèle': 'Model coordinates',
   'Coordonnées locales du modèle': 'Local model coordinates',
   'Coordonnées du niveau (monde)': 'Level coordinates (world)',

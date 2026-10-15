@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.0-dev.2 — dialogue events preview
+
+- Keep the combined resource relocation table sorted by location, preserving every original entry. Reject malformed unsorted tables during event export validation.
+- Fix bank-local collision references left unresolved by the native loader binary search. Regenerate affected event exports and their ISO from the original dump.
+- Register the corrected E6 mirror popup key for English, French and German.
+- Rebuild the Windows development executable and checksum manifests. Add two archive regression tests and verify packaged event export. Native A5770 checks pass for 19 new fields across all eight trial banks; complete Xemu traversal remains pending.
+
 ## 2.1.1 — 2026-10-10
 
 - Separate the Explorer into Levels and Cinematics, with independent selectors, counts and remembered selections. The inspected European dump contains 24 levels and 9 cinematics; counts follow the opened source and project.

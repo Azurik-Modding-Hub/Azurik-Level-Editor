@@ -1,0 +1,391 @@
+{
+  "format": "azurik-level-events",
+  "version": 1,
+  "events": [
+    {
+      "id": "evt_e2_3465_any",
+      "level": "e2",
+      "name": "Approche des symboles de barrière",
+      "popupBase": "demo/demo_intro",
+      "position": [
+        323.2833252367942,
+        6.901024471045957,
+        -113.4322280883789
+      ],
+      "size": [
+        10.402210452566464,
+        9.723635952066097,
+        8.5
+      ],
+      "condition": "any",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing",
+      "activeNode": 3465
+    },
+    {
+      "id": "evt_e5_2522_any",
+      "level": "e5",
+      "name": "Approche du bloc acide niveau 2",
+      "popupBase": "demo/demo_acid",
+      "position": [
+        126.62009985422134,
+        -263.0184938848382,
+        0.298387348651886
+      ],
+      "size": [
+        9.451623424583872,
+        10.139640902248345,
+        9.5
+      ],
+      "condition": "any",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing",
+      "activeNode": 2528
+    },
+    {
+      "id": "evt_e7_19_any",
+      "level": "e7",
+      "name": "Approche du bloc de glace niveau 2",
+      "popupBase": "demo/demo_ice",
+      "position": [
+        228.6505760132942,
+        -130.20715903678578,
+        -81.87994384765625
+      ],
+      "size": [
+        9.403976047544859,
+        10.18635471925954,
+        9.5
+      ],
+      "condition": "any",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing",
+      "activeNode": 19
+    },
+    {
+      "id": "evt_w1_1415_any",
+      "level": "w1",
+      "name": "Approche du mur de feu",
+      "popupBase": "demo/demo_firewall",
+      "position": [
+        93.48650160164934,
+        14.347537600502305,
+        5.090725898742676
+      ],
+      "size": [
+        9.08516441322044,
+        10.935412658713826,
+        8.5
+      ],
+      "condition": "any",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing",
+      "activeNode": 1415
+    },
+    {
+      "id": "evt_a5_1871_any",
+      "level": "a5",
+      "name": "Approche du mur de feu renforcé",
+      "popupBase": "demo/demo_firewallb",
+      "position": [
+        -6.086473321700415,
+        3.074107331631847,
+        3.206191509962082
+      ],
+      "size": [
+        9.74923994373518,
+        14.110704756309996,
+        8.5
+      ],
+      "condition": "any",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing",
+      "activeNode": 1871
+    },
+    {
+      "id": "evt_a1_1764_any",
+      "level": "a1",
+      "name": "Entrée du tube aérien",
+      "popupBase": "demo/demo_jump",
+      "position": [
+        -173.814453125,
+        -39.400390625,
+        -418.0
+      ],
+      "size": [
+        19.57421875,
+        17.35546875,
+        12.5
+      ],
+      "condition": "any",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_a3_rope_entry",
+      "level": "a3",
+      "name": "Approche de la tyrolienne",
+      "popupBase": "demo/demo_jumpb",
+      "position": [
+        -123.51952687359882,
+        -21.076662447908255,
+        -127.84125082833427
+      ],
+      "size": [
+        6,
+        6,
+        5
+      ],
+      "condition": "any",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_48_night",
+      "level": "e6",
+      "name": "Commande du miroir 48 — nuit",
+      "popupBase": "e6daylight",
+      "position": [
+        73.18945728173162,
+        -42.35270901794061,
+        21.88671854496002
+      ],
+      "size": [
+        5.433232788489789,
+        5.433232788489789,
+        2.7890625
+      ],
+      "condition": "night",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_48_day",
+      "level": "e6",
+      "name": "Commande du miroir 48 — jour",
+      "popupBase": "e6mirror",
+      "position": [
+        73.18945728173162,
+        -42.35270901794061,
+        21.88671854496002
+      ],
+      "size": [
+        5.433232788489789,
+        5.433232788489789,
+        2.7890625
+      ],
+      "condition": "day",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_63_night",
+      "level": "e6",
+      "name": "Commande du miroir 63 — nuit",
+      "popupBase": "e6daylight",
+      "position": [
+        64.93021977392299,
+        37.54129953103541,
+        32.48727343137858
+      ],
+      "size": [
+        5.445461234937149,
+        5.440292858832223,
+        3.2402343903920396
+      ],
+      "condition": "night",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_63_day",
+      "level": "e6",
+      "name": "Commande du miroir 63 — jour",
+      "popupBase": "e6mirror",
+      "position": [
+        64.93021977392299,
+        37.54129953103541,
+        32.48727343137858
+      ],
+      "size": [
+        5.445461234937149,
+        5.440292858832223,
+        3.2402343903920396
+      ],
+      "condition": "day",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_83_night",
+      "level": "e6",
+      "name": "Commande du miroir 83 — nuit",
+      "popupBase": "e6daylight",
+      "position": [
+        -73.37909015923833,
+        -42.35689442801335,
+        21.88671854496002
+      ],
+      "size": [
+        5.4332327522159005,
+        5.433232752215908,
+        2.7890625
+      ],
+      "condition": "night",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_83_day",
+      "level": "e6",
+      "name": "Commande du miroir 83 — jour",
+      "popupBase": "e6mirror",
+      "position": [
+        -73.37909015923833,
+        -42.35689442801335,
+        21.88671854496002
+      ],
+      "size": [
+        5.4332327522159005,
+        5.433232752215908,
+        2.7890625
+      ],
+      "condition": "day",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_119_night",
+      "level": "e6",
+      "name": "Commande du miroir 119 — nuit",
+      "popupBase": "e6daylight",
+      "position": [
+        -3.646336000029393e-06,
+        -83.99999985555726,
+        31.883369045564905
+      ],
+      "size": [
+        4.781250155721819,
+        4.781250155721821,
+        2.7890625
+      ],
+      "condition": "night",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_119_day",
+      "level": "e6",
+      "name": "Commande du miroir 119 — jour",
+      "popupBase": "e6mirror",
+      "position": [
+        -3.646336000029393e-06,
+        -83.99999985555726,
+        31.883369045564905
+      ],
+      "size": [
+        4.781250155721819,
+        4.781250155721821,
+        2.7890625
+      ],
+      "condition": "day",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_139_night",
+      "level": "e6",
+      "name": "Commande du miroir 139 — nuit",
+      "popupBase": "e6daylight",
+      "position": [
+        -3.697177544115249e-06,
+        84.00000003814692,
+        21.886718544960015
+      ],
+      "size": [
+        4.78125,
+        4.78125,
+        2.7890625
+      ],
+      "condition": "night",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_139_day",
+      "level": "e6",
+      "name": "Commande du miroir 139 — jour",
+      "popupBase": "e6mirror",
+      "position": [
+        -3.697177544115249e-06,
+        84.00000003814692,
+        21.886718544960015
+      ],
+      "size": [
+        4.78125,
+        4.78125,
+        2.7890625
+      ],
+      "condition": "day",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_164_night",
+      "level": "e6",
+      "name": "Commande du miroir 164 — nuit",
+      "popupBase": "e6daylight",
+      "position": [
+        -73.36465844520494,
+        42.38191517719221,
+        31.883369045564905
+      ],
+      "size": [
+        5.433232809214047,
+        5.43323280921404,
+        2.7890625000000036
+      ],
+      "condition": "night",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    },
+    {
+      "id": "evt_e6_164_day",
+      "level": "e6",
+      "name": "Commande du miroir 164 — jour",
+      "popupBase": "e6mirror",
+      "position": [
+        -73.36465844520494,
+        42.38191517719221,
+        31.883369045564905
+      ],
+      "size": [
+        5.433232809214047,
+        5.43323280921404,
+        2.7890625000000036
+      ],
+      "condition": "day",
+      "once": true,
+      "locked": false,
+      "resourceKind": "existing"
+    }
+  ]
+}
