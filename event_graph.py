@@ -71,9 +71,12 @@ def validate_archive(data: bytes) -> Footer:
     if len(set(tags)) != len(tags) or any(s.tag not in tags for s in sections):
         raise ValueError("Archive loader table contains missing or duplicate types.")
     starts = [s.offset for s in sections]
-    seen, relocations = set(), []
+    seen, relocations, previous_location = set(), [], -1
     for i in range(h[7]):
         location = _u32(data, h[8] + i * 4)
+        if location <= previous_location:
+            raise ValueError("Les références des ressources ne sont pas dans l’ordre requis par le jeu. Recréez le mod depuis le dump original.")
+        previous_location = location
         absolute = h[4] + location
         owner = bisect_right(starts, absolute) - 1
         if location in seen or location % 4 or owner < 0:

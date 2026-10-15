@@ -1,4 +1,4 @@
-# Dialogue events — 2.2.0 development preview
+# Dialogue events — 2.2.0-dev.2 development preview
 
 This preview adds editable player proximity zones to Azurik Level Studio. It is
 intended for testing before a public release. Original game files remain read-only.
@@ -34,6 +34,19 @@ ISO. The export includes the new native field, condition and popup nodes, along
 with any new popup textures and their asset registry entries. It does not patch
 the executable. The separate dialogue trial ISO also includes an experimental
 diamond pickup queue; that executable patch is not part of a standard event export.
+
+The **dev.2 loading fix** merges the original and new resource relocation
+locations in ascending order, as required by the retail loader's binary search.
+Previously an appended collision reference could stay bank-local, and a
+prefetched W1/E2 resource could resolve incorrectly when leaving training.
+Regenerate exports and rebuild their ISO from the original dump with this
+version; an already-created ISO does not change when the editor is updated.
+Exports reject unsorted relocation tables instead of silently extending them.
+The renamed mirror popup is also registered in all three language banks.
+
+Isolated execution of the unchanged native A5770 routine relocates all **19 new
+collision fields in the eight corrected banks**. This verifies the loader fix;
+a complete training-to-town transition in Xemu still needs confirmation.
 
 The supported collision template is read from EU W1 in the user's dump. The
 native loader, spatial registration, world bounds, day/night curve and native

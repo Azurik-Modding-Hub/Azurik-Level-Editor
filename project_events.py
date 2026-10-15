@@ -231,7 +231,9 @@ class ProjectEvents:
             for lang,bank in self._popup_banks().items():
                 filename=LANGUAGES[lang][:-4]
                 data=files.get(filename,bank)
-                if mirror:data=bind_mirror_key(data,lang)
+                if mirror:
+                    data=bind_mirror_key(data,lang)
+                    registrations.append(dict(key='loc/'+lang+'/popups/e6mirror00.tif',tag='surf',archive=LANGUAGES[lang]))
                 for e in custom.values():
                     data,record=add_named_popup(data,lang,e)
                     registrations.append(dict(key=record['key'],tag='surf',archive=LANGUAGES[lang]))

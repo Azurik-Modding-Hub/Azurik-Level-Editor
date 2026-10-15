@@ -1,6 +1,6 @@
 # Azurik Level Studio 2.1.1
 
-**Development preview: dialogue events (2.2.0-dev).** The preview branch adds an
+**Development preview: dialogue events (2.2.0-dev.2).** The preview branch adds an
 Events menu to import, position and resize player proximity zones, choose an
 existing popup, control day/night and repetition, or import a new silent TXT
 panel. Undo/redo, locks and native ISO export are supported. The Windows

@@ -123,21 +123,27 @@ def add_resource_relocations(data: bytes, absolute_fields: list[int]) -> tuple[b
         if location in existing or location in new_locations or target >= len(before.sections):
             raise ValueError("New relocation is duplicate or references an invalid resource ID.")
         new_locations.append(location)
-    inserted = b"".join(struct.pack("<I", loc) for loc in new_locations)
+    # Retail A5770 uses binary lower_bound over this table. New NODE words
+    # can precede existing words in later resources, so append-only ordering
+    # leaves their local IDs unresolved during streaming.
+    ordered = sorted(existing | set(new_locations))
+    replacement = b"".join(struct.pack("<I", loc) for loc in ordered)
+    inserted = b"\0" * (len(new_locations) * 4)
     if len(original) + len(inserted) > MAX_BYTES:
         raise ValueError("New relocation metadata would exceed bounded archive length.")
-    result = bytearray(original[:h[10]] + inserted + original[h[10]:])
+    result = bytearray(original[:h[8]] + replacement + original[h[10]:])
     struct.pack_into("<I", result, 28, h[7] + len(new_locations))
     for index in (10, 12, 13):
         struct.pack_into("<I", result, index * 4, h[index] + len(inserted))
     after = validate_archive(result)
-    if after.names != before.names or after.relocations[:len(before.relocations)] != before.relocations:
+    if after.names != before.names or not set(before.relocations).issubset(set(after.relocations)):
         raise ValueError("An original named resource or ID relocation changed.")
     if result[h[4]:h[6]] != original[h[4]:h[6]]:
         raise ValueError("Payload changed while adding its relocation metadata.")
     if result[after.header[10]:] != original[h[10]:]:
         raise ValueError("Original name/type footer bytes changed.")
     return bytes(result), {"addedRelocationLocations": new_locations,
+                           "relocationLocationsSorted": True,
                            "originalRelocationCount": h[7], "newRelocationCount": after.header[7],
                            "originalPayloadPreserved": True, "originalFooterRecordsPreserved": True}
 
